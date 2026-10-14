@@ -173,3 +173,70 @@ tbody tr {
   font-size: 0.75rem;
   margin-right: 6px;
 }
+
+.hint-inline {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.import {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+
+  .import-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 12px;
+  }
+
+  .import-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  textarea {
+    font: inherit;
+    font-size: 0.9rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    width: 100%;
+    resize: vertical;
+  }
+
+  button {
+    align-self: flex-start;
+    font: inherit;
+    padding: 6px 16px;
+    border-radius: 6px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+
+  .import-box p {
+    margin: 0;
+  }
+}

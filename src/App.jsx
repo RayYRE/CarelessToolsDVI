@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FAILURES, JOBS, RARITIES, SKILL_GROUPS, isGathering } from './data/jobs.js'
 import { ESTIMATED_LEVELS, MAX_LEVEL } from './data/levels.js'
+import { parseExport, parseStats } from './lib/importStats.js'
 import {
+  actionTime,
   clampLevel,
   expectedMultiplier,
   failChance,
@@ -24,11 +26,13 @@ const DEFAULTS = {
   skill: 'Mining',
   jobId: 0,
   xpGain: 95,
-  currentXp: 0,
+  // Current XP per skill, e.g. { Mining: 8171 } (filled by import or by hand)
+  skillXp: {},
   targetXp: xpForLevel(99),
+  // Per-skill bonuses, e.g. { Mining: 286 } (filled by import or by hand)
+  luck: {},
+  speed: {},
   // Gathering
-  tool: 'Common',
-  amuletLuck: 0,
   rareFind: 0,
   // Processing
   counts: { Uncommon: 0, Rare: 0, Epic: 0, Legendary: 0 },
@@ -76,33 +80,23 @@ function XpInput({ label, xp, onChange }) {
   )
 }
 
-function LuckPanel({ settings, set, odds, chances, baseXp }) {
-  const { tool, amuletLuck, rareFind, xpGain } = settings
+function LuckPanel({ skill, settings, set, odds, chances, baseXp }) {
+  const { luck, rareFind, xpGain } = settings
   return (
     <section className="panel">
       <h2>Luck &amp; rare-find</h2>
       <div className="controls">
-        <label>
-          Tool
-          <select value={tool} onChange={(e) => set({ tool: e.target.value })}>
-            {RARITIES.map((r) => (
-              <option key={r.name} value={r.name}>
-                {r.name} (+{r.toolLuck * 100}% luck)
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Amulet luck (%)
+        <label title="Tool (Uncommon +25%, Rare +75%, Epic +200%, Legendary +500%) + amulet">
+          Luck in {skill} (%)
           <input
             type="number"
             min={0}
-            value={amuletLuck}
-            onChange={(e) => set({ amuletLuck: num(e.target.value) })}
+            value={luck[skill] ?? 0}
+            onChange={(e) => set({ luck: { ...luck, [skill]: num(e.target.value) } })}
           />
         </label>
         <label title="Hunter's brew, Vein Blessing, hot skill, town events, lucky shrine, Rare-find mastery">
-          Rare-find total (%)
+          Rare-find (%)
           <input
             type="number"
             min={0}
@@ -115,6 +109,9 @@ function LuckPanel({ settings, set, odds, chances, baseXp }) {
           <strong>×{odds.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
         </div>
       </div>
+      <p className="hint">
+        Luck = tool (Uncommon +25%, Rare +75%, Epic +200%, Legendary +500%) + amulet.
+      </p>
       <p className="hint">
         Rare-find = brew + Vein Blessing + hot skill + town events + lucky shrine + mastery, added
         together.
@@ -210,11 +207,87 @@ function FailurePanel({ failure, job, currentLevel, targetLevel, failed }) {
   )
 }
 
+// One paste box: runs `parse` on the text and hands the result to onImport
+function ImportBox({ title, hint, placeholder, parse, fallbackError, onImport }) {
+  const [text, setText] = useState('')
+  const [message, setMessage] = useState(null)
+
+  const runImport = () => {
+    const { settings, found, error } = parse(text)
+    if (!found.length) {
+      setMessage({ warn: true, text: error ?? fallbackError })
+      return
+    }
+    onImport(settings)
+    setMessage({ warn: false, text: `Imported ${found.join(', ')}.` })
+    setText('')
+  }
+
+  return (
+    <div className="import-box">
+      <h3>{title}</h3>
+      <p className="hint">{hint}</p>
+      <textarea
+        rows={6}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={placeholder}
+      />
+      <button type="button" onClick={runImport} disabled={!text.trim()}>
+        Import
+      </button>
+      {message && <p className={message.warn ? 'warn' : 'hint'}>{message.text}</p>}
+    </div>
+  )
+}
+
+function ImportPanel({ onImport }) {
+  return (
+    <details className="panel import">
+      <summary>Import from the game</summary>
+      <div className="import-grid">
+        <ImportBox
+          title="Character export (JSON)"
+          hint="Settings -> Privacy -> Export my character"
+          placeholder={`{
+  "game": "Deep Vein Idle",
+  "skills": { ... }
+}`}
+          parse={parseExport}
+          fallbackError="No skills found in this export."
+          onImport={onImport}
+        />
+        <ImportBox
+          title="Stats export"
+          hint="Copy your Stat page starting from Offence."
+          placeholder={`Offence
+Combat style
+Combat level
+Max hit
+...`}
+          parse={parseStats}
+          fallbackError='No stats recognised — paste the "Your bonuses" section.'
+          onImport={onImport}
+        />
+      </div>
+    </details>
+  )
+}
+
 function App() {
   const [settings, setSettings] = useState(loadSettings)
-  const { skill, jobId, xpGain, currentXp, targetXp, tool, amuletLuck, rareFind, counts } =
-    settings
+  const { skill, jobId, xpGain, skillXp, targetXp, luck, speed, rareFind, counts } = settings
   const set = (patch) => setSettings((s) => ({ ...s, ...patch }))
+  // Imports merge per-skill maps (luck, speed, skillXp) instead of replacing them
+  const mergeImport = (patch) =>
+    setSettings((s) => {
+      const next = { ...s }
+      for (const [key, value] of Object.entries(patch)) {
+        next[key] = value && typeof value === 'object' ? { ...s[key], ...value } : value
+      }
+      return next
+    })
+  const currentXp = skillXp[skill] ?? 0
 
   useEffect(() => {
     try {
@@ -230,15 +303,16 @@ function App() {
   const currentLevel = levelForXp(currentXp)
   const remaining = Math.max(0, targetXp - currentXp)
 
-  const toolLuck = RARITIES.find((r) => r.name === tool)?.toolLuck ?? 0
-  const odds = oddsMultiplier(toolLuck, amuletLuck, rareFind)
+  const odds = oddsMultiplier(luck[skill] ?? 0, rareFind)
+  const skillSpeed = speed[skill] ?? 0
   const chances = rarityChances(odds)
   const avgMultiplier = expectedMultiplier(chances)
 
   const failure = FAILURES[skill]
   const targetLevel = levelForXp(targetXp)
 
-  const rows = skillJobs.map((j) => {
+  const rows = skillJobs.map((baseJob) => {
+    const j = { ...baseJob, time: actionTime(baseJob.time, skillSpeed) }
     const plan = gathering
       ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, avgMultiplier, xpGain))
       : fixedCountPlan(j, currentXp, targetXp, xpGain, counts)
@@ -251,21 +325,27 @@ function App() {
     const xpPerHour = plan.seconds
       ? (plan.xpGained / plan.seconds) * 3600
       : (perAction / (j.time + fail * (j.fail?.stun ?? 0))) * 3600
-    return { ...j, plan, fail, perAction, xpPerHour, actions: plan.actions, seconds: plan.seconds }
+    // Gathering worst case: no luck at all, every drop Common (×1)
+    const maxPlan = gathering ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, 1, xpGain)) : null
+    return { ...j, plan, maxPlan, fail, perAction, xpPerHour, actions: plan.actions, seconds: plan.seconds }
   })
   const selected = rows.find((r) => r.id === job.id)
   const gain = (1 + xpGain / 100).toFixed(2)
 
   const changeSkill = (newSkill) => {
     const jobs = JOBS.filter((j) => j.skill === newSkill)
-    // Default to the best unlocked job for the current level
-    const best = jobs.filter((j) => j.level <= currentLevel).at(-1) ?? jobs[0]
-    set({ skill: newSkill, jobId: best.id })
+    const newLevel = levelForXp(skillXp[newSkill] ?? 0)
+    // Default to the best unlocked job, and make sure the target is above the new skill's XP
+    const best = jobs.filter((j) => j.level <= newLevel).at(-1) ?? jobs[0]
+    const minTarget = xpForLevel(Math.min(newLevel + 1, MAX_LEVEL))
+    set({ skill: newSkill, jobId: best.id, targetXp: Math.max(targetXp, minTarget) })
   }
 
   return (
     <main>
       <h1>XP Action Calculator</h1>
+
+      <ImportPanel onImport={mergeImport} />
 
       <section className="panel controls">
         <label>
@@ -295,15 +375,28 @@ function App() {
           XP gain (%)
           <input type="number" value={xpGain} onChange={(e) => set({ xpGain: num(e.target.value) })} />
         </label>
+        <label>
+          {skill} speed (%)
+          <input
+            type="number"
+            min={0}
+            value={skillSpeed}
+            onChange={(e) => set({ speed: { ...speed, [skill]: num(e.target.value) } })}
+          />
+        </label>
       </section>
 
       <section className="panel xp-pair">
-        <XpInput label="Current" xp={currentXp} onChange={(v) => set({ currentXp: v })} />
+        <XpInput
+          label={`Current ${skill}`}
+          xp={currentXp}
+          onChange={(v) => set({ skillXp: { ...skillXp, [skill]: v } })}
+        />
         <XpInput label="Target" xp={targetXp} onChange={(v) => set({ targetXp: v })} />
       </section>
 
       {gathering ? (
-        <LuckPanel settings={settings} set={set} odds={odds} chances={chances} baseXp={job.xp} />
+        <LuckPanel skill={skill} settings={settings} set={set} odds={odds} chances={chances} baseXp={job.xp} />
       ) : (
         <CountsPanel settings={settings} set={set} plan={selected.plan} baseXp={job.xp} />
       )}
@@ -326,6 +419,13 @@ function App() {
             {fmt(selected.actions)}
           </strong>
         </div>
+        {gathering && (
+          <div className="stat">
+            <span>Max actions (all Common)</span>
+            <strong>{fmt(selected.maxPlan.actions)}</strong>
+            <small className="hint-inline">{formatDuration(selected.maxPlan.seconds)}</small>
+          </div>
+        )}
         <div className="stat">
           <span>XP remaining</span>
           <strong>{fmt(remaining)}</strong>
@@ -335,8 +435,12 @@ function App() {
           <strong>{selected.perAction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
         </div>
         <div className="stat">
-          <span>Time</span>
+          <span>Time (excluding movement)</span>
           <strong>{formatDuration(selected.seconds)}</strong>
+          <small className="hint-inline">
+            {+selected.time.toFixed(2)}s / action
+            {skillSpeed ? ` (base ${job.time}s, +${skillSpeed}% speed)` : ''}
+          </small>
         </div>
         {job.level > currentLevel && (
           <p className="warn">Requires level {job.level} — you are level {currentLevel}.</p>
@@ -369,6 +473,7 @@ function App() {
                 <th>Avg XP/action</th>
                 <th>XP/hr</th>
                 <th>Actions</th>
+                {gathering && <th>Max (all Common)</th>}
                 <th>Time</th>
               </tr>
             </thead>
@@ -390,6 +495,7 @@ function App() {
                   <td>{r.perAction.toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
                   <td>{fmt(r.xpPerHour)}</td>
                   <td>{fmt(r.actions)}</td>
+                  {gathering && <td>{fmt(r.maxPlan.actions)}</td>}
                   <td>{formatDuration(r.seconds)}</td>
                 </tr>
               ))}

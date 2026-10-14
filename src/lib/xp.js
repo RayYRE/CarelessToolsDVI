@@ -21,8 +21,13 @@ export function xpPerAction(baseXp, rarityMultiplier, xpGainPercent) {
 }
 
 // Odds = base × (1 + luck) × (1 + rare-find). Luck = tool + amulet, rare-find = everything else.
-export function oddsMultiplier(toolLuck, amuletLuckPercent, rareFindPercent) {
-  return (1 + toolLuck + amuletLuckPercent / 100) * (1 + rareFindPercent / 100)
+export function oddsMultiplier(luckPercent, rareFindPercent) {
+  return (1 + luckPercent / 100) * (1 + rareFindPercent / 100)
+}
+
+// Skill speed bonus: +X% speed means X% more actions per second
+export function actionTime(baseSeconds, speedPercent) {
+  return baseSeconds / (1 + speedPercent / 100)
 }
 
 // Chance per action of each exact rarity. Base odds are "this tier or better",
