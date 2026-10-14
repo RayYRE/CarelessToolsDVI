@@ -184,6 +184,9 @@ export default function XpCalculator({ profile, setProfile }) {
             {gathering && '≈ '}
             {fmt(selected.actions)}
           </strong>
+          <small className="hint-inline">
+            {formatDuration(selected.seconds)} (excluding movement)
+          </small>
         </div>
         {gathering && (
           <div className="stat">
@@ -199,10 +202,6 @@ export default function XpCalculator({ profile, setProfile }) {
         <div className="stat">
           <span>Avg XP / action</span>
           <strong>{selected.perAction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-        </div>
-        <div className="stat">
-          <span>Time (excluding movement)</span>
-          <strong>{formatDuration(selected.seconds)}</strong>
           <small className="hint-inline">
             {+selected.time.toFixed(2)}s / action
             {skillSpeed ? ` (base ${job.time}s, +${skillSpeed}% speed)` : ''}
