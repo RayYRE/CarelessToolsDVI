@@ -1,32 +1,29 @@
 :root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --text: #1c1f24;
-  --muted: #646b75;
-  --border: #dde1e6;
-  --hover: #eef1f5;
-  --accent: #2f6fdb;
-  --accent-bg: #e3ecfb;
-  --warn: #b45309;
+  /* Palette sampled from the game's UI (shared with Careless Enhancing) */
+  --bg: #21150b;
+  --panel: #301f12;
+  --panel-raised: #3b2816;
+  --border: #7b664c;
+  --border-soft: rgba(123, 102, 76, 0.45);
+  --border-strong: #957f61;
+  --text: #cdb48d;
+  --text-h: #e6d3ac;
+  --muted: #a18a6a;
+  --hover: #3b2816;
+  --accent: #e6d3ac;
+  --accent-bg: rgba(196, 150, 54, 0.28);
+  --warn: #e0846f;
 
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Rarity colours sampled from the game */
+  --rarity-uncommon: #88c977;
+  --rarity-rare: #769fcc;
+  --rarity-epic: #b993d4;
+  --rarity-legendary: #dfb964;
+
+  font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
   color: var(--text);
   background: var(--bg);
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14161a;
-    --panel: #1c1f24;
-    --text: #e6e8eb;
-    --muted: #9aa1ab;
-    --border: #2e333a;
-    --hover: #252930;
-    --accent: #6ea0ff;
-    --accent-bg: #1f2d47;
-    --warn: #f59e0b;
-  }
 }
 
 * {

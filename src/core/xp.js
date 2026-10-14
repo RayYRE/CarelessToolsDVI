@@ -1,5 +1,5 @@
-import { RARITIES } from '../data/jobs.js'
-import { MAX_LEVEL, TOTAL_XP } from '../data/levels.js'
+import { MAX_LEVEL, TOTAL_XP } from '../game/levels.js'
+import { RARITIES } from '../game/rarities.js'
 
 export function clampLevel(level) {
   return Math.min(Math.max(Math.floor(level) || 1, 1), MAX_LEVEL)
@@ -9,10 +9,16 @@ export function xpForLevel(level) {
   return TOTAL_XP[clampLevel(level)]
 }
 
+// Binary search: highest level whose total XP is <= xp
 export function levelForXp(xp) {
-  let level = 1
-  while (level < MAX_LEVEL && TOTAL_XP[level + 1] <= xp) level++
-  return level
+  let lo = 1
+  let hi = MAX_LEVEL
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (TOTAL_XP[mid] <= xp) lo = mid
+    else hi = mid - 1
+  }
+  return lo
 }
 
 // XP per attempt after the rarity multiplier and the % XP gain bonus
@@ -53,7 +59,7 @@ export function failChance(job, level) {
 
 // Expected attempts to earn XP from startXp up to targetXp, recalculating the
 // fail chance at every level-up. Stops early after maxAttempts if given.
-function walk(job, startXp, targetXp, xpPerSuccess, maxAttempts = Infinity) {
+export function walk(job, startXp, targetXp, xpPerSuccess, maxAttempts = Infinity) {
   let xp = startXp
   let attempts = 0
   let failed = 0
@@ -73,7 +79,7 @@ function walk(job, startXp, targetXp, xpPerSuccess, maxAttempts = Infinity) {
   return { xp, attempts, failed }
 }
 
-const roundUp = (n) => Math.ceil(n - 1e-9)
+const roundUp = (n) => Math.max(0, Math.ceil(n - 1e-9))
 
 function finishPlan(job, startXp, attempts, failed, endXp, extra = {}) {
   const actions = roundUp(attempts)
@@ -114,20 +120,3 @@ export function fixedCountPlan(job, currentXp, targetXp, xpGainPercent, counts) 
     commonActions,
   })
 }
-
-export function formatDuration(totalSeconds) {
-  if (!isFinite(totalSeconds) || totalSeconds <= 0) return '0s'
-  const s = Math.round(totalSeconds)
-  const d = Math.floor(s / 86400)
-  const h = Math.floor((s % 86400) / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  const parts = []
-  if (d) parts.push(`${d.toLocaleString()}d`)
-  if (h) parts.push(`${h}h`)
-  if (m && !d) parts.push(`${m}m`)
-  if (sec && !d && !h) parts.push(`${sec}s`)
-  return parts.join(' ')
-}
-
-export const fmt = (n) => Math.round(n).toLocaleString()

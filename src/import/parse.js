@@ -1,4 +1,5 @@
-import { SKILL_GROUPS } from '../data/jobs.js'
+import { SKILL_GROUPS } from '../game/jobs.js'
+import { rarityFromGameName } from '../game/rarities.js'
 
 const ALL_SKILLS = [...SKILL_GROUPS.Gathering, ...SKILL_GROUPS.Processing]
 
@@ -48,8 +49,8 @@ export function parseStats(text) {
   return { settings: result, found }
 }
 
-// Parse the game's JSON character export. Only skill XP is used for now.
-// Returns { settings: { skillXp }, found, error }.
+// Parse the game's JSON character export: skill XP and collection log counts.
+// Returns { settings: { skillXp, collection }, found, error }.
 export function parseExport(text) {
   let data
   try {
@@ -63,10 +64,26 @@ export function parseExport(text) {
     const xp = Number(value?.xp)
     if (skill && Number.isFinite(xp)) skillXp[skill] = xp
   }
+  // collection: { "Bronze bar": { Common: 228, Uncommon: 74 } }
+  const collection = {}
+  for (const entry of Array.isArray(data?.collection) ? data.collection : []) {
+    const rarity = rarityFromGameName(entry?.rarity)
+    const qty = Number(entry?.qty)
+    if (!entry?.name || !rarity || !Number.isFinite(qty)) continue
+    collection[entry.name] = { ...collection[entry.name], [rarity.name]: qty }
+  }
+
   const count = Object.keys(skillXp).length
   if (!count) return { settings: {}, found: [], error: 'No skills found in this export.' }
   const who = data.character?.name ? ` for ${data.character.name}` : ''
-  return { settings: { skillXp }, found: [`XP for ${count} skills${who}`] }
+  const found = [`XP for ${count} skills${who}`]
+  const settings = { skillXp }
+  const items = Object.keys(collection).length
+  if (items) {
+    found.push(`collection log (${items} items)`)
+    settings.collection = collection
+  }
+  return { settings, found }
 }
 
 const matchSkill = (name) => ALL_SKILLS.find((s) => s.toLowerCase() === name.toLowerCase())
