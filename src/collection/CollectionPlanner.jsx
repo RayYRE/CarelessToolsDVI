@@ -247,9 +247,10 @@ export default function CollectionPlanner({ profile, setProfile }) {
                       type="button"
                       className="exclude"
                       title={`Exclude ${s.job.item} from the route`}
+                      aria-label={`Exclude ${s.job.item} from the route`}
                       onClick={() => exclude(s.job.item)}
                     >
-                      Exclude
+                      ✕
                     </button>
                   </td>
                 </tr>

@@ -325,6 +325,13 @@ button.exclude {
   }
 }
 
+button.exclude {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  line-height: 1;
+}
+
 button.exclude:hover:not(:disabled) {
   border-color: var(--warn);
   color: var(--warn);
