@@ -348,3 +348,13 @@ button.exclude:hover:not(:disabled) {
     margin: 0;
   }
 }
+
+
+.adjust-result {
+  margin-top: 12px;
+}
+
+.hint-inline.warn,
+.hint-inline.warn a {
+  color: var(--warn);
+}

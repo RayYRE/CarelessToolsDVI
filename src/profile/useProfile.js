@@ -3,7 +3,10 @@ import { readStorage, usePersistentState } from '../core/storage.js'
 
 // The player's own numbers, shared by every tool and filled by the imports
 const DEFAULT_PROFILE = {
-  xpGain: 95,
+  // XP gain total as shown on the stats screen, and its sources: [{ label, value }]
+  // (see xpGain.js for which sources apply to which skills)
+  xpGain: 0,
+  xpGainSources: [],
   rareFind: 0,
   // Per-skill maps, e.g. { Mining: 8171 }
   skillXp: {},
@@ -30,13 +33,15 @@ export function useProfile() {
     migrateFromXpCalc,
   )
 
-  // Imports merge per-key maps (luck, speed, skillXp, collection) instead of replacing them
+  // Imports merge per-key maps (luck, speed, skillXp, collection) instead of replacing them;
+  // lists like xpGainSources are replaced
   const mergeImport = useCallback(
     (patch) =>
       setRaw((s) => {
         const next = { ...s }
         for (const [key, value] of Object.entries(patch)) {
-          next[key] = value && typeof value === 'object' ? { ...s[key], ...value } : value
+          const isMap = value && typeof value === 'object' && !Array.isArray(value)
+          next[key] = isMap ? { ...s[key], ...value } : value
         }
         return next
       }),

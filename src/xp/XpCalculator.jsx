@@ -16,6 +16,7 @@ import {
 } from '../core/xp.js'
 import { FAILURES, JOBS, SKILL_GROUPS, isGathering } from '../game/jobs.js'
 import { MAX_LEVEL } from '../game/levels.js'
+import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CountsPanel from './CountsPanel.jsx'
 import FailurePanel from './FailurePanel.jsx'
 import LuckPanel from './LuckPanel.jsx'
@@ -32,7 +33,9 @@ const DEFAULTS = {
 export default function XpCalculator({ profile, setProfile }) {
   const [settings, set] = usePersistentState('xp-calc-settings', DEFAULTS)
   const { skill, jobId, targetXp, counts } = settings
-  const { xpGain, skillXp, luck, speed, rareFind } = profile
+  const { skillXp, luck, speed, rareFind } = profile
+  // XP gain that applies to this skill (stats total minus bonuses for other skill types)
+  const xpGain = skillXpGain(profile, skill)
   const currentXp = skillXp[skill] ?? 0
 
   const gathering = isGathering(skill)
@@ -109,9 +112,18 @@ export default function XpCalculator({ profile, setProfile }) {
           XP gain (%)
           <input
             type="number"
-            value={xpGain}
+            value={profile.xpGain}
             onChange={(e) => setProfile({ xpGain: num(e.target.value) })}
           />
+          {hasXpSources(profile) || !profile.xpGain ? (
+            <small className="hint-inline">
+              {xpGain}% effective XP gain
+            </small>
+          ) : (
+            <small className="hint-inline warn">
+              Sources not imported, may be inaccurate. <a href="#import">Fix</a>
+            </small>
+          )}
         </label>
         <label>
           {skill} speed (%)
@@ -138,6 +150,7 @@ export default function XpCalculator({ profile, setProfile }) {
           skill={skill}
           profile={profile}
           setProfile={setProfile}
+          xpGain={xpGain}
           odds={odds}
           chances={chances}
           baseXp={job.xp}

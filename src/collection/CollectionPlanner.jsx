@@ -6,6 +6,7 @@ import { clampLevel, levelForXp } from '../core/xp.js'
 import { MILESTONES, formatMilestone, itemName } from '../game/collection.js'
 import { JOBS, SKILL_GROUPS } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
+import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import { planRoute } from './route.js'
 
 const DEFAULTS = {
@@ -23,7 +24,9 @@ const CAP_OPTIONS = [-1, ...MILESTONES.map((_, i) => i)]
 export default function CollectionPlanner({ profile, setProfile }) {
   const [settings, set] = usePersistentState('collection-planner', DEFAULTS)
   const { skill, targetLevel, minPointsPerHour, maxMilestone, excluded } = settings
-  const { xpGain, skillXp, speed, collection } = profile
+  const { skillXp, speed, collection } = profile
+  // XP gain that applies to this skill (stats total minus bonuses for other skill types)
+  const xpGain = skillXpGain(profile, skill)
   const currentXp = skillXp[skill] ?? 0
   const currentLevel = levelForXp(currentXp)
   const hasCollection = Object.keys(collection).length > 0
@@ -77,9 +80,18 @@ export default function CollectionPlanner({ profile, setProfile }) {
           XP gain (%)
           <input
             type="number"
-            value={xpGain}
+            value={profile.xpGain}
             onChange={(e) => setProfile({ xpGain: num(e.target.value) })}
           />
+          {hasXpSources(profile) || !profile.xpGain ? (
+            <small className="hint-inline">
+              {xpGain}% effective XP gain
+            </small>
+          ) : (
+            <small className="hint-inline warn">
+              Sources not imported, may be inaccurate. <a href="#import">Fix</a>
+            </small>
+          )}
         </label>
         <label>
           {skill} speed (%)

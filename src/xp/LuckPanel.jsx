@@ -1,8 +1,8 @@
 import { fmt, num, pct } from '../core/format.js'
 import { xpPerAction } from '../core/xp.js'
 
-export default function LuckPanel({ skill, profile, setProfile, odds, chances, baseXp }) {
-  const { luck, rareFind, xpGain } = profile
+export default function LuckPanel({ skill, profile, setProfile, xpGain, odds, chances, baseXp }) {
+  const { luck, rareFind } = profile
   return (
     <section className="panel">
       <h2>Luck &amp; rare-find</h2>

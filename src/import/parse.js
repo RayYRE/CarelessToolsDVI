@@ -1,44 +1,79 @@
 import { SKILL_GROUPS } from '../game/jobs.js'
 import { rarityFromGameName } from '../game/rarities.js'
+import { MISSING_XP_SOURCES } from '../profile/xpGain.js'
 
 const ALL_SKILLS = [...SKILL_GROUPS.Gathering, ...SKILL_GROUPS.Processing]
 
+// Labels that end the list of XP gain sources on the stats screen
+const NOT_AN_XP_SOURCE =
+  /^(luck\b|rare-find|max hit|attack speed|move speed|food healing|enhance odds)|speed$/i
+
+// Split the pasted stats into [label, value] pairs. Labels and values may be on the same
+// line ("XP gain +71%") or on separate lines ("XP gain" then "+71%").
+function statPairs(text) {
+  const pairs = []
+  let label = null
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const m = line.match(/^(.*?)\s*([+-]?\d+(?:\.\d+)?)\s*%$/)
+    if (m && m[1]) pairs.push([m[1], Number(m[2])])
+    else if (m && label) pairs.push([label, Number(m[2])])
+    label = m ? null : line
+  }
+  return pairs
+}
+
 // Parse the in-game stats screen ("Your bonuses") that players copy and paste.
-// Labels and values may be on the same line or on separate lines, e.g.
-//   XP gain
-//   +71%
-// Returns only the fields it found, ready to merge into settings.
+// The lines right after "XP gain" are its sources (Home (combat), Gatherer's brew, Guild...),
+// which matter because some only boost certain skills.
+// Returns only the fields it found, ready to merge into the profile.
 export function parseStats(text) {
   const result = { luck: {}, speed: {} }
   const found = []
-  const re = /(XP gain|Luck in ([A-Za-z]+)|Luck elsewhere|Rare-find|([A-Za-z]+) speed)\s*([+-]?\d+(?:\.\d+)?)\s*%/gi
+  let sources = null // collecting XP gain sources while not null
+  let luckElsewhere
 
-  for (const [, label, luckSkill, speedSkill, value] of text.matchAll(re)) {
-    const v = Number(value)
+  for (const [label, v] of statPairs(text)) {
     const lower = label.toLowerCase()
     if (lower === 'xp gain') {
       result.xpGain = v
-      found.push(`XP gain ${v}%`)
-    } else if (lower === 'rare-find') {
+      sources = []
+      continue
+    }
+    if (sources && !NOT_AN_XP_SOURCE.test(label)) {
+      sources.push({ label, value: v })
+      continue
+    }
+    if (sources) {
+      result.xpGainSources = sources
+      sources = null
+    }
+
+    if (lower === 'rare-find') {
       result.rareFind = v
-      found.push(`Rare-find ${v}%`)
     } else if (lower === 'luck elsewhere') {
-      result.luckElsewhere = v
-    } else if (luckSkill) {
-      const skill = matchSkill(luckSkill)
+      luckElsewhere = v
+    } else if (lower.startsWith('luck in ')) {
+      const skill = matchSkill(label.slice(8))
       if (skill) result.luck[skill] = v
-    } else if (speedSkill) {
-      const skill = matchSkill(speedSkill)
+    } else if (lower.endsWith(' speed')) {
+      const skill = matchSkill(label.slice(0, -6))
       if (skill) result.speed[skill] = v
     }
   }
+  if (sources) result.xpGainSources = sources
 
   // "Luck elsewhere" covers every gathering skill not listed on its own
-  if (result.luckElsewhere !== undefined) {
-    for (const s of SKILL_GROUPS.Gathering) result.luck[s] ??= result.luckElsewhere
+  if (luckElsewhere !== undefined) {
+    for (const s of SKILL_GROUPS.Gathering) result.luck[s] ??= luckElsewhere
   }
-  delete result.luckElsewhere
 
+  if (result.xpGain !== undefined) {
+    const n = result.xpGainSources?.length
+    found.push(`XP gain ${result.xpGain}%${n ? ` (${n} sources)` : ''}`)
+  }
+  if (result.rareFind !== undefined) found.push(`Rare-find ${result.rareFind}%`)
   const luckCount = Object.keys(result.luck).length
   const speedCount = Object.keys(result.speed).length
   if (luckCount) found.push(`luck for ${luckCount} skills`)
@@ -46,7 +81,11 @@ export function parseStats(text) {
   if (!luckCount) delete result.luck
   if (!speedCount) delete result.speed
 
-  return { settings: result, found }
+  // XP gain without its source lines can't be split per skill, so ask for them
+  const warning =
+    result.xpGain !== undefined && !result.xpGainSources?.length ? MISSING_XP_SOURCES : undefined
+
+  return { settings: result, found, warning }
 }
 
 // Parse the game's JSON character export: skill XP and collection log counts.
