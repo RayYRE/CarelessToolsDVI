@@ -1,4 +1,5 @@
 // Enhanceable gear, built from the shared game icons in src/assets/items
+import { JOBS } from '../game/jobs.js'
 
 // Base price per tier; an item's cost per attempt starts from its tier's price
 export const TIERS = [
@@ -14,31 +15,48 @@ export const TIERS = [
 // and so on, and some of those names start with a material word (Iron, Magic logs), so the
 // gear is listed here rather than guessed from file names.
 const ENHANCEABLE_RANGES = [
+  [80, 94], // Pickaxes, rods, axes
   [110, 134], // Metal blades, shields, helms, plates, greaves
   [140, 157], // Bows and staffs
   [181, 186], // Silver, gold and meteoric rings and amulets
   [260, 274], // Leather armour
   [304, 315], // Cloth armour
+  [323, 327], // Gloves
   [328, 354], // Horse, quivers, grimoires, troll/drake/wightweave/colossus gear
   [357, 358], // Leviathan amulet, Wyrm ring
+  [360, 389], // Pans, hammers, knives, needles, mortars, hoes
   [390, 395], // Greatswords
+  [629, 635], // Drakestring bows, Emberwood staff, Abyssweave set
 ]
 const isEnhanceable = (id) => ENHANCEABLE_RANGES.some(([from, to]) => id >= from && id <= to)
 
-// Tier of each material word in an icon's filename
-const TIER_BY_MATERIAL = {
-  // Tools, weapons, armour
-  bronze: 1, iron: 2, steel: 3, cobalt: 4, meteoric: 5, colossus: 6,
-  // Fletcher weapons and staffs (the plain bow or staff has no material word)
-  oak: 2, willow: 3, maple: 3, yew: 4, magic: 5,
-  // Accessories
-  silver: 2, gold: 3, horse: 4, wyrm: 6, leviathan: 6,
-  // Mage gear
-  homespun: 1, linen: 1, silk: 2, gilded: 4, voidweave: 5, wightweave: 6,
-  // Range gear
-  pelt: 1, bogskin: 2, chitin: 3, fur: 4, scale: 5, troll: 6, drake: 6,
+// Level needed for each item: crafted gear comes from the job list, the rest is listed here
+const LEVELS = {
+  ...Object.fromEntries(JOBS.map((job) => [job.name, job.level])),
+  'Colossus blade': 99,
+  'Colossus shield': 99,
+  'Colossus helm': 99,
+  'Colossus plate': 99,
+  'Colossus greaves': 99,
+  'Colossus greatsword': 99,
+  'Drake coif': 99,
+  'Drake jerkin': 99,
+  'Drake chaps': 99,
+  'Drake quiver': 99,
+  'Drakestring shortbow': 95,
+  'Drakestring longbow': 95,
+  'Emberwood staff': 95,
+  'Abyssweave hood': 99,
+  'Abyssweave robe': 99,
+  'Abyssweave skirt': 99,
+  'Abyssweave grimoire': 99,
 }
-const PLAIN_ITEMS = new Set(['shortbow', 'longbow', 'staff'])
+// Items whose level isn't known, so their tier is set directly
+const TIER_OVERRIDES = { Horse: 4 }
+
+// Lowest level of each tier: T1 1–14, T2 15–29, T3 30–49, T4 50–74, T5 75–89, T6 90+
+const TIER_LEVELS = [1, 15, 30, 50, 75, 90]
+const tierForLevel = (level) => TIER_LEVELS.findLastIndex((min) => level >= min) + 1
 
 const icons = import.meta.glob('../assets/items/*.svg', {
   eager: true,
@@ -53,8 +71,9 @@ const parsed = Object.entries(icons)
   .map(([path, icon]) => {
     const [, id, slug] = path.match(/\/(\d+)-(.+)\.svg$/)
     const words = slug.split('-')
-    const tier = PLAIN_ITEMS.has(slug) ? 1 : TIER_BY_MATERIAL[words[0]]
-    return { id, name: capitalise(words.join(' ')), type: words.at(-1), tier, icon }
+    const name = capitalise(words.join(' '))
+    const tier = TIER_OVERRIDES[name] ?? (LEVELS[name] && tierForLevel(LEVELS[name]))
+    return { id, name, type: words.at(-1), tier, icon }
   })
   .filter((item) => isEnhanceable(+item.id) && item.tier)
 
