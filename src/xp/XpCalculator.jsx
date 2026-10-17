@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import Icon from '../components/Icon.jsx'
+import IconSelect from '../components/IconSelect.jsx'
 import XpInput from '../components/XpInput.jsx'
 import { fmt, formatDuration, num, pct } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
@@ -14,6 +16,7 @@ import {
   xpForLevel,
   xpPerAction,
 } from '../core/xp.js'
+import { jobIcon, skillIcon } from '../game/icons.js'
 import { FAILURES, JOBS, SKILL_GROUPS, isGathering } from '../game/jobs.js'
 import { MAX_LEVEL } from '../game/levels.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
@@ -85,29 +88,25 @@ export default function XpCalculator({ profile, setProfile }) {
   return (
     <>
       <section className="panel controls">
-        <label>
-          Skill
-          <select value={skill} onChange={(e) => changeSkill(e.target.value)}>
-            {Object.entries(SKILL_GROUPS).map(([group, skills]) => (
-              <optgroup key={group} label={group}>
-                {skills.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-        <label>
-          Job
-          <select value={job.id} onChange={(e) => set({ jobId: Number(e.target.value) })}>
-            {skillJobs.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.category ? `${j.category} – ` : ''}
-                {j.name} (lvl {j.level})
-              </option>
-            ))}
-          </select>
-        </label>
+        <IconSelect
+          label="Skill"
+          value={skill}
+          onChange={changeSkill}
+          options={Object.entries(SKILL_GROUPS).flatMap(([group, skills]) =>
+            skills.map((s) => ({ value: s, label: s, icon: skillIcon(s), group })),
+          )}
+        />
+        <IconSelect
+          label="Job"
+          value={job.id}
+          onChange={(jobId) => set({ jobId })}
+          options={skillJobs.map((j) => ({
+            value: j.id,
+            label: j.name,
+            detail: `lvl ${j.level}`,
+            icon: jobIcon(j),
+          }))}
+        />
         <label>
           XP gain (%)
           <input
@@ -225,7 +224,10 @@ export default function XpCalculator({ profile, setProfile }) {
       </section>
 
       <section className="panel">
-        <h2>All {skill} jobs</h2>
+        <h2 className="with-icon">
+          <Icon src={skillIcon(skill)} size={24} />
+          All {skill} jobs
+        </h2>
         <div className="table-wrap">
           <table>
             <thead>
@@ -251,7 +253,10 @@ export default function XpCalculator({ profile, setProfile }) {
                 >
                   <td>
                     {r.category && <span className="cat">{r.category}</span>}
-                    {r.name}
+                    <span className="with-icon">
+                      <Icon src={jobIcon(r)} />
+                      {r.name}
+                    </span>
                   </td>
                   <td>{r.level}</td>
                   {failure && <td>{pct(r.fail)}</td>}
