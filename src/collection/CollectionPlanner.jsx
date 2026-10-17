@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
+import IconSelect from '../components/IconSelect.jsx'
 import XpInput from '../components/XpInput.jsx'
 import { num } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
 import { levelForXp } from '../core/xp.js'
+import { skillIcon } from '../game/icons.js'
 import { SKILL_GROUPS } from '../game/jobs.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CollectionLog from './CollectionLog.jsx'
@@ -39,14 +41,12 @@ export default function CollectionPlanner({ profile, setProfile }) {
   return (
     <>
       <section className="panel controls">
-        <label>
-          Skill
-          <select value={skill} onChange={(e) => set({ skill: e.target.value })}>
-            {SKILL_GROUPS.Processing.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </label>
+        <IconSelect
+          label="Skill"
+          value={skill}
+          onChange={(s) => set({ skill: s })}
+          options={SKILL_GROUPS.Processing.map((s) => ({ value: s, label: s, icon: skillIcon(s) }))}
+        />
         <label>
           XP gain (%)
           <input

@@ -92,16 +92,16 @@ export default function CollectionLog({
               Level {g}
             </button>
           ))}
-          {Object.keys(shown).length > 0 && (
-            <button
-              type="button"
-              className="chip"
-              title="Show only unlocked items"
-              onClick={() => onShown({})}
-            >
-              Reset
-            </button>
-          )}
+          {/* Always shown so the chips don't shift; disabled while already at the default */}
+          <button
+            type="button"
+            className="chip"
+            title="Show only unlocked items"
+            disabled={Object.keys(shown).length === 0}
+            onClick={() => onShown({})}
+          >
+            Reset
+          </button>
         </div>
       </div>
       <p className="hint">

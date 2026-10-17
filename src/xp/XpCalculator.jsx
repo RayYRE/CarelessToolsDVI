@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import Icon from '../components/Icon.jsx'
+import IconSelect from '../components/IconSelect.jsx'
 import XpInput from '../components/XpInput.jsx'
 import { fmt, formatDuration, num, pct } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
@@ -87,29 +88,25 @@ export default function XpCalculator({ profile, setProfile }) {
   return (
     <>
       <section className="panel controls">
-        <label>
-          Skill
-          <select value={skill} onChange={(e) => changeSkill(e.target.value)}>
-            {Object.entries(SKILL_GROUPS).map(([group, skills]) => (
-              <optgroup key={group} label={group}>
-                {skills.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
-        <label>
-          Job
-          <select value={job.id} onChange={(e) => set({ jobId: Number(e.target.value) })}>
-            {skillJobs.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.category ? `${j.category} – ` : ''}
-                {j.name} (lvl {j.level})
-              </option>
-            ))}
-          </select>
-        </label>
+        <IconSelect
+          label="Skill"
+          value={skill}
+          onChange={changeSkill}
+          options={Object.entries(SKILL_GROUPS).flatMap(([group, skills]) =>
+            skills.map((s) => ({ value: s, label: s, icon: skillIcon(s), group })),
+          )}
+        />
+        <IconSelect
+          label="Job"
+          value={job.id}
+          onChange={(jobId) => set({ jobId })}
+          options={skillJobs.map((j) => ({
+            value: j.id,
+            label: j.name,
+            detail: `lvl ${j.level}`,
+            icon: jobIcon(j),
+          }))}
+        />
         <label>
           XP gain (%)
           <input
