@@ -1,0 +1,83 @@
+import { actionTime, levelForXp, walk, xpPerAction } from '../core/xp.js'
+import { MILESTONES, itemName, milestonePoints, nextMilestoneIndex } from '../game/collection.js'
+import { JOBS } from '../game/jobs.js'
+import { RARITIES } from '../game/rarities.js'
+import { materialsFor } from '../game/recipes.js'
+
+const key = (item, rarity) => `${item}|${rarity}`
+
+/**
+ * Plays a list of planned steps in order. Each step crafts one item at one rarity up to its
+ * next collection milestone, starting from the counts left by the steps before it, so
+ * planning the same cell twice plans the tier after.
+ *
+ * steps: [{ job: job name, rarity: rarity name }]
+ * Returns the computed steps plus the end state: XP, level, and a lookup for planned counts.
+ */
+export function runPlan({ steps, startXp, xpGain, speed, collection }) {
+  const counts = {}
+  const have = (item, rarity) => counts[key(item, rarity)] ?? collection[item]?.[rarity] ?? 0
+  let xp = startXp
+  let seconds = 0
+  let points = 0
+
+  const rows = steps.map((step) => {
+    const job = JOBS.find((j) => j.name === step.job)
+    const rarity = RARITIES.find((r) => r.name === step.rarity)
+    if (!job || !rarity) return null
+    const item = itemName(job)
+    const levelBefore = levelForXp(xp)
+    const r = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed)
+    counts[key(item, rarity.name)] = r.to
+    xp += r.xpGained
+    seconds += r.seconds
+    points += r.points
+    return {
+      ...step,
+      ...r,
+      item,
+      needLevel: job.level,
+      locked: job.level > levelBefore,
+      levelBefore,
+      levelAfter: levelForXp(xp),
+      totalSeconds: seconds,
+    }
+  })
+
+  const kept = rows.filter(Boolean)
+  return { rows: kept, xp, level: levelForXp(xp), seconds, points, have, materials: totalMaterials(kept) }
+}
+
+// Materials across every step, merged by material and rarity, largest first
+function totalMaterials(rows) {
+  const totals = {}
+  for (const m of rows.flatMap((r) => r.materials)) {
+    const k = key(m.material, m.rarity)
+    totals[k] = { ...m, quantity: (totals[k]?.quantity ?? 0) + m.quantity }
+  }
+  return Object.values(totals).sort((a, b) => b.quantity - a.quantity)
+}
+
+// Craft one item/rarity from `collected` up to its next milestone, starting at `xp`
+export function tierStep(job, rarity, collected, xp, xpGain, speed) {
+  const index = nextMilestoneIndex(collected)
+  if (index < 0) {
+    return { done: true, from: collected, to: collected, items: 0, materials: [], xpGained: 0, seconds: 0, points: 0 }
+  }
+  const items = MILESTONES[index] - collected
+  const perItem = xpPerAction(job.xp, rarity.multiplier, xpGain)
+  const xpGained = items * perItem
+  // Failed attempts (burns) don't count toward the log, so walk the extra attempts
+  const run = walk(job, xp, xp + xpGained, perItem)
+  const attempts = Math.ceil(run.attempts - 1e-9)
+  return {
+    from: collected,
+    to: MILESTONES[index],
+    items,
+    attempts,
+    materials: materialsFor(job.name, attempts, rarity.name) ?? [],
+    xpGained,
+    seconds: run.attempts * actionTime(job.time, speed) + run.failed * (job.fail?.stun ?? 0),
+    points: milestonePoints(index, rarity.name),
+  }
+}
