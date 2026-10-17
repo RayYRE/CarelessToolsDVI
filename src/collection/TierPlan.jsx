@@ -47,7 +47,7 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear }) {
               <strong>{fmt(rows.reduce((sum, s) => sum + s.items, 0))}</strong>
             </div>
             <div className="stat">
-              <span>Time</span>
+              <span>Time (excluding movement)</span>
               <strong>{formatDuration(plan.seconds)}</strong>
             </div>
             <div className="stat">
