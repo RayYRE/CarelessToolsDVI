@@ -1,5 +1,7 @@
 import { fmt, formatDuration } from '../core/format.js'
+import Icon from '../components/Icon.jsx'
 import { formatMilestone } from '../game/collection.js'
+import { iconFor } from '../game/icons.js'
 
 // "1,234 Iron, 2,468 Coal", with rarer materials named and coloured by rarity
 function Materials({ list }) {
@@ -7,7 +9,7 @@ function Materials({ list }) {
   return list.map((m, i) => (
     <span key={`${m.rarity}|${m.material}`} className="material">
       {i > 0 && ', '}
-      {fmt(m.quantity)}{' '}
+      {fmt(m.quantity)} <Icon src={iconFor(m.material)} size={16} />
       {m.rarity === 'Common' ? (
         m.material
       ) : (
@@ -59,7 +61,7 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear }) {
             <span>Total cost</span> <Materials list={plan.materials} />
           </p>
           <div className="table-wrap">
-            <table>
+            <table className="align-left">
               <thead>
                 <tr>
                   <th>#</th>
@@ -79,7 +81,10 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear }) {
                   <tr key={i} className="static">
                     <td>{i + 1}</td>
                     <td>
-                      {s.item}
+                      <span className="with-icon">
+                        <Icon src={iconFor(s.item)} />
+                        {s.item}
+                      </span>
                       {s.locked && <small className="hint-inline warn"> needs level {s.needLevel}</small>}
                     </td>
                     <td className={`rarity-${s.rarity.toLowerCase()}`}>{s.rarity}</td>

@@ -1,6 +1,8 @@
+import Icon from '../components/Icon.jsx'
 import { fmt } from '../core/format.js'
 import { levelForXp } from '../core/xp.js'
 import { MILESTONES, formatMilestone, itemName, milestonePoints } from '../game/collection.js'
+import { jobIcon, skillIcon } from '../game/icons.js'
 import { JOBS } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
 import { tierStep } from './plan.js'
@@ -73,7 +75,10 @@ export default function CollectionLog({
   return (
     <section className="panel">
       <div className="panel-header">
-        <h2>{skill} collection log</h2>
+        <h2 className="with-icon">
+          <Icon src={skillIcon(skill)} size={24} />
+          {skill} collection log
+        </h2>
         <div className="chips">
           {groups.map((g) => (
             <button
@@ -108,6 +113,7 @@ export default function CollectionLog({
         {rows.map((row) => (
           <li key={row.key} className="log-row">
             <div className="log-name">
+              <Icon src={jobIcon(row.job)} size={28} />
               <strong>{row.item}</strong>
               <small>{fmt(row.total)} total</small>
             </div>

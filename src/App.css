@@ -373,7 +373,7 @@ button.exclude:hover:not(:disabled) {
 .log-name {
   flex: 1 1 160px;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   color: var(--text-h);
 
@@ -431,6 +431,26 @@ button.log-cell {
   &.planned {
     border-color: currentColor;
   }
+}
+
+img.icon {
+  flex: none;
+  vertical-align: middle;
+  object-fit: contain;
+}
+
+.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.material img.icon {
+  margin-right: 3px;
+}
+
+table.align-left :is(th, td) {
+  text-align: left;
 }
 
 .plan-cost {

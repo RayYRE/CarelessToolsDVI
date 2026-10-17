@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import Icon from '../components/Icon.jsx'
 import XpInput from '../components/XpInput.jsx'
 import { fmt, formatDuration, num, pct } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
@@ -14,6 +15,7 @@ import {
   xpForLevel,
   xpPerAction,
 } from '../core/xp.js'
+import { jobIcon, skillIcon } from '../game/icons.js'
 import { FAILURES, JOBS, SKILL_GROUPS, isGathering } from '../game/jobs.js'
 import { MAX_LEVEL } from '../game/levels.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
@@ -225,7 +227,10 @@ export default function XpCalculator({ profile, setProfile }) {
       </section>
 
       <section className="panel">
-        <h2>All {skill} jobs</h2>
+        <h2 className="with-icon">
+          <Icon src={skillIcon(skill)} size={24} />
+          All {skill} jobs
+        </h2>
         <div className="table-wrap">
           <table>
             <thead>
@@ -251,7 +256,10 @@ export default function XpCalculator({ profile, setProfile }) {
                 >
                   <td>
                     {r.category && <span className="cat">{r.category}</span>}
-                    {r.name}
+                    <span className="with-icon">
+                      <Icon src={jobIcon(r)} />
+                      {r.name}
+                    </span>
                   </td>
                   <td>{r.level}</td>
                   {failure && <td>{pct(r.fail)}</td>}
