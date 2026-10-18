@@ -619,3 +619,127 @@ button.log-reset {
 .hint-inline.warn a {
   color: var(--warn);
 }
+
+/* Enhancing: item picker. Frame colours per rarity are sampled from the game;
+   Common keeps the plain theme colours. */
+.picker {
+  --rarity-text: var(--text-h);
+  --rarity-border: var(--border);
+  --rarity-fill: var(--panel);
+  margin-bottom: 14px;
+
+  &[data-rarity='uncommon'] {
+    --rarity-text: var(--rarity-uncommon);
+    --rarity-border: #8fd47e;
+    --rarity-fill: #2a2e1a;
+  }
+  &[data-rarity='rare'] {
+    --rarity-text: var(--rarity-rare);
+    --rarity-border: #86b8ee;
+    --rarity-fill: #29292c;
+  }
+  &[data-rarity='epic'] {
+    --rarity-text: var(--rarity-epic);
+    --rarity-border: #cfa5f0;
+    --rarity-fill: #34262c;
+  }
+  &[data-rarity='legendary'] {
+    --rarity-text: var(--rarity-legendary);
+    --rarity-border: #ecc46a;
+    --rarity-fill: #392b17;
+  }
+}
+
+.picker-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+
+  img {
+    width: 40px;
+    height: 40px;
+    image-rendering: pixelated;
+    background: var(--rarity-fill);
+    border: 2px solid var(--rarity-border);
+    border-radius: 6px;
+    padding: 3px;
+  }
+
+  div {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 140px;
+  }
+
+  b {
+    color: var(--rarity-text);
+  }
+
+  span {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  input {
+    flex: 1 1 200px;
+  }
+}
+
+.picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+
+  .hint {
+    margin: 0;
+  }
+}
+
+button.tile {
+  width: 44px;
+  height: 44px;
+  padding: 3px;
+  background: var(--rarity-fill);
+  border: 2px solid var(--rarity-border);
+  border-radius: 6px;
+  opacity: 0.75;
+
+  &:hover:not(:disabled) {
+    opacity: 1;
+    background: var(--rarity-fill);
+  }
+
+  img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+  }
+
+  &.on {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--text-h);
+  }
+}
+
+.run-simulation {
+  margin-top: 12px;
+}
+
+.simulation {
+  margin-top: 14px;
+
+  .table-wrap {
+    margin-top: 12px;
+  }
+}
