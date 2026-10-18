@@ -32,7 +32,7 @@ function App() {
   return (
     <main>
       <h1>Careless Tools</h1>
-      <h2>Pls keep within the guild</h2>
+      <h2>Pls keep within the guild, FYI TIME IS STILL WIP (movement isn't calculated)</h2>
       <nav className="tabs">
         {TABS.map((t) => (
           <a key={t.id} href={`#${t.id}`} className={t.id === id ? 'active' : undefined}>
