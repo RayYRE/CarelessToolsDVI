@@ -92,15 +92,15 @@ export default function CollectionLog({
               Level {g}
             </button>
           ))}
-          {/* Always shown so the chips don't shift; disabled while already at the default */}
+          {/* Always shown so the chips don't shift; disabled while nothing is selected */}
           <button
             type="button"
             className="chip"
-            title="Show only unlocked items"
-            disabled={Object.keys(shown).length === 0}
-            onClick={() => onShown({})}
+            title="Deselect every level group"
+            disabled={!groups.some(isShown)}
+            onClick={() => onShown(Object.fromEntries(groups.map((g) => [g, false])))}
           >
-            Reset
+            Clear all
           </button>
         </div>
       </div>
