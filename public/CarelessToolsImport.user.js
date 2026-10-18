@@ -1,6 +1,8 @@
 // ==UserScript==
 // @name         CarelessToolsImport
 // @namespace    https://carelesstoolsdvi.carelesscapybara.workers.dev/
+// @downloadURL  https://carelesstoolsdvi.carelesscapybara.workers.dev/CarelessToolsImport.user.js
+// @updateURL    https://carelesstoolsdvi.carelesscapybara.workers.dev/CarelessToolsImport.user.js
 // @version      1.3
 // @description  Reads your Deep Vein Idle character (skills, house, masteries, collection log, Your bonuses stats) for Careless Tools. Never sends game commands.
 // @match        https://deepveinidle.com/*

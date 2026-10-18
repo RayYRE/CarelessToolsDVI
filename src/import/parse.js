@@ -1,11 +1,11 @@
 import { SKILL_GROUPS } from '../game/jobs.js'
 import { itemNameById } from '../game/itemNames.js'
-import { RARITIES, rarityFromGameName } from '../game/rarities.js'
+import { RARITIES } from '../game/rarities.js'
 import { MISSING_XP_SOURCES } from '../profile/xpGain.js'
 
 const ALL_SKILLS = [...SKILL_GROUPS.Gathering, ...SKILL_GROUPS.Processing]
-// The export also holds Enhancing XP, used by the Enhancing tab
-const EXPORT_SKILLS = [...ALL_SKILLS, 'Enhancing']
+// The snapshot also holds Enhancing XP, used by the Enhancing tab
+const SNAPSHOT_SKILLS = [...ALL_SKILLS, 'Enhancing']
 
 // Labels that end the list of XP gain sources on the stats screen
 const NOT_AN_XP_SOURCE =
@@ -24,34 +24,17 @@ function htmlPairs(html) {
   })
 }
 
-// Split the pasted stats into [label, value] pairs. Labels and values may be on the same
-// line ("XP gain +71%") or on separate lines ("XP gain" then "+71%").
-function statPairs(text) {
-  if (text.trimStart().startsWith('<')) return htmlPairs(text)
-  const pairs = []
-  let label = null
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line) continue
-    const m = line.match(/^(.*?)\s*([+-]?\d+(?:\.\d+)?)\s*%$/)
-    if (m && m[1]) pairs.push([m[1], Number(m[2])])
-    else if (m && label) pairs.push([label, Number(m[2])])
-    label = m ? null : line
-  }
-  return pairs
-}
-
-// Parse the in-game stats screen ("Your bonuses") that players copy and paste.
-// The lines right after "XP gain" are its sources (Home (combat), Gatherer's brew, Guild...),
+// Parse the in-game stats screen ("Your bonuses") captured by the userscript.
+// The entries right after "XP gain" are its sources (Home (combat), Gatherer's brew, Guild...),
 // which matter because some only boost certain skills.
 // Returns only the fields it found, ready to merge into the profile.
-export function parseStats(text) {
+function parseStats(html) {
   const result = { luck: {}, speed: {} }
   const found = []
   let sources = null // collecting XP gain sources while not null
   let luckElsewhere
 
-  for (const [label, v] of statPairs(text)) {
+  for (const [label, v] of htmlPairs(html)) {
     const lower = label.toLowerCase()
     if (lower === 'xp gain') {
       result.xpGain = v
@@ -105,53 +88,14 @@ export function parseStats(text) {
   return { settings: result, found, warning }
 }
 
-// Parse the game's JSON character export: skill XP and collection log counts.
-// Returns { settings: { skillXp, collection }, found, error }.
-export function parseExport(text) {
-  let data
-  try {
-    data = JSON.parse(text)
-  } catch {
-    return { settings: {}, found: [], error: 'Not valid JSON — paste the whole export.' }
-  }
-  // A userscript snapshot pasted by hand
-  if (data?.player?.skills) return parseSnapshot(data)
-  const skillXp = {}
-  for (const [name, value] of Object.entries(data?.skills ?? {})) {
-    const skill = matchSkill(name, EXPORT_SKILLS)
-    const xp = Number(value?.xp)
-    if (skill && Number.isFinite(xp)) skillXp[skill] = xp
-  }
-  // collection: { "Bronze bar": { Common: 228, Uncommon: 74 } }
-  const collection = {}
-  for (const entry of Array.isArray(data?.collection) ? data.collection : []) {
-    const rarity = rarityFromGameName(entry?.rarity)
-    const qty = Number(entry?.qty)
-    if (!entry?.name || !rarity || !Number.isFinite(qty)) continue
-    collection[entry.name] = { ...collection[entry.name], [rarity.name]: qty }
-  }
-
-  const count = Object.keys(skillXp).length
-  if (!count) return { settings: {}, found: [], error: 'No skills found in this export.' }
-  const who = data.character?.name ? ` for ${data.character.name}` : ''
-  const found = [`XP for ${count} skills${who}`]
-  const settings = { skillXp }
-  const items = Object.keys(collection).length
-  if (items) {
-    found.push(`collection log (${items} items)`)
-    settings.collection = collection
-  }
-  return { settings, found }
-}
-
-// Parse the snapshot from the "Character import" userscript: { player: { skills, house, collections } }.
+// Parse the player from a userscript snapshot: { skills, house, masteries, collections }.
 // Skills are plain XP numbers; collections are keyed by item ID, where ID = base ID + 1000 × rarity
 // (4 = Silver, 1004 = Uncommon Silver, 4004 = Legendary Silver).
 // Returns { settings: { skillXp, collection, lecternLevel, enhanceMastery }, found, error }.
 function parsePlayer(player) {
   const skillXp = {}
   for (const [name, xp] of Object.entries(player?.skills ?? {})) {
-    const skill = matchSkill(name, EXPORT_SKILLS)
+    const skill = matchSkill(name, SNAPSHOT_SKILLS)
     if (skill && Number.isFinite(xp)) skillXp[skill] = xp
   }
   const count = Object.keys(skillXp).length

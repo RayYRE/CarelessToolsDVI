@@ -1,46 +1,14 @@
 import { useState } from 'react'
 import { SKILL_GROUPS } from '../game/jobs.js'
-import { parseExport, parseSnapshot, parseStats } from '../import/parse.js'
+import { parseSnapshot } from '../import/parse.js'
 import { readCharacterSnapshot } from '../import/userscript.js'
 import { xpSourceScope } from '../game/xpSources.js'
 import { skillXpGain } from '../profile/xpGain.js'
 
-// One paste box: runs `parse` on the text and hands the result to onImport
-function ImportBox({ title, hint, placeholder, parse, fallbackError, onImport }) {
-  const [text, setText] = useState('')
-  const [message, setMessage] = useState(null)
+// Served from public/. Tampermonkey offers to install any link ending in .user.js
+const USERSCRIPT_URL = `${import.meta.env.BASE_URL}CarelessToolsImport.user.js`
 
-  const runImport = () => {
-    const { settings, found, error, warning } = parse(text)
-    if (!found.length) {
-      setMessage({ warn: true, text: error ?? fallbackError })
-      return
-    }
-    onImport(settings)
-    setMessage({ warn: false, text: `Imported ${found.join(', ')}.`, warning })
-    setText('')
-  }
-
-  return (
-    <div className="panel import-box">
-      <h2>{title}</h2>
-      <p className="hint">{hint}</p>
-      <textarea
-        rows={8}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={placeholder}
-      />
-      <button type="button" onClick={runImport} disabled={!text.trim()}>
-        Import
-      </button>
-      {message && <p className={message.warn ? 'warn' : 'hint'}>{message.text}</p>}
-      {message?.warning && <p className="warn">{message.warning}</p>}
-    </div>
-  )
-}
-
-// One-click import from the "Character import" userscript, when it runs on this site
+// One-click import from the CarelessToolsImport userscript, the only way to fill the profile
 function UserscriptImport({ onImport }) {
   const [message, setMessage] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -76,15 +44,22 @@ function UserscriptImport({ onImport }) {
 
   return (
     <div className="panel import-box">
-      <h2>Userscript</h2>
+      <h2>Import from the game</h2>
       <p className="hint">
-        Reads the CarelessToolsImport userscript: skill XP, collection log, Rune lectern level,
-        Enhancing mastery and your bonuses (XP gain, rare-find, luck, speed). Open the game with
-        the script on first. The dvi-lab userscript also works, without the bonuses.
+        Needs the CarelessToolsImport userscript in Tampermonkey: with Tampermonkey installed,
+        Download userscript opens its install page. Open the game with it on and
+        wait for "stats captured" in the bottom-left corner, then import here. Sets skill XP,
+        collection log, Rune lectern level, Enhancing mastery and your bonuses (XP gain,
+        rare-find, luck, speed).
       </p>
-      <button type="button" onClick={runImport} disabled={busy}>
-        {busy ? 'Reading…' : 'Import from userscript'}
-      </button>
+      <div className="button-row">
+        <button type="button" onClick={runImport} disabled={busy}>
+          {busy ? 'Reading…' : 'Import from userscript'}
+        </button>
+        <a className="button" href={USERSCRIPT_URL} target="_blank" rel="noreferrer">
+          Download userscript
+        </a>
+      </div>
       {message && <p className={message.warn ? 'warn' : 'hint'}>{message.text}</p>}
       {message?.warning && <p className="warn">{message.warning}</p>}
     </div>
@@ -172,7 +147,7 @@ function XpGainSources({ profile }) {
       )}
       {sources.length > 0 && sum !== profile.xpGain && (
         <p className="warn">
-          Sources add up to {sum}%, but the total is {profile.xpGain}%. Check the paste.
+          Sources add up to {sum}%, but the total is {profile.xpGain}%. Import again from the game.
         </p>
       )}
       <div className="controls adjust-result">
@@ -197,35 +172,7 @@ export default function ImportPanel({ profile, mergeImport }) {
   return (
     <>
       <SavedSummary profile={profile} />
-      <div className="import-grid">
-        <UserscriptImport onImport={mergeImport} />
-        <ImportBox
-          title="Character export (JSON)"
-          hint="Settings -> Privacy -> Export my character, or a userscript snapshot. Sets skill XP and collection log."
-          placeholder={`{
-  "game": "Deep Vein Idle",
-  "skills": { ... }
-}`}
-          parse={parseExport}
-          fallbackError="No skills found in this export."
-          onImport={mergeImport}
-        />
-        <ImportBox
-          title="Stats export"
-          hint="Easiest: in the game tab's console run copy(document.querySelector('.stats-group').outerHTML) and paste here. Or copy your Stat page starting from Your bonuses, with XP gain sources showing."
-          placeholder={`Your bonuses click for sources
-XP gain
-+71%
-Home (combat)
-+15%
-Gatherer's brew
-+10%
-...`}
-          parse={parseStats}
-          fallbackError='No stats recognised — paste the "Your bonuses" section.'
-          onImport={mergeImport}
-        />
-      </div>
+      <UserscriptImport onImport={mergeImport} />
       <XpGainSources profile={profile} />
     </>
   )

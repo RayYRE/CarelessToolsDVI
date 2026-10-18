@@ -15,6 +15,6 @@ export function skillXpGain(profile, skill) {
 export const hasXpSources = (profile) => (profile.xpGainSources ?? []).length > 0
 
 export const MISSING_XP_SOURCES =
-  'XP gain sources are missing. On the stats page, click "XP gain" under Your ' +
-  'bonuses, then copy and import again. Until then the XP gain may include bonuses that ' +
-  "don't apply to these skills (e.g. Home (combat)), so results won't be accurate."
+  'XP gain was imported without its sources, so it may include bonuses that ' +
+  "don't apply to these skills (e.g. Home (combat)). Open the stats menu in the game, " +
+  'then import again.'
