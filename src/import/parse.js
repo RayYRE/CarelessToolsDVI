@@ -1,16 +1,33 @@
 import { SKILL_GROUPS } from '../game/jobs.js'
-import { rarityFromGameName } from '../game/rarities.js'
+import { itemNameById } from '../game/itemNames.js'
+import { RARITIES, rarityFromGameName } from '../game/rarities.js'
 import { MISSING_XP_SOURCES } from '../profile/xpGain.js'
 
 const ALL_SKILLS = [...SKILL_GROUPS.Gathering, ...SKILL_GROUPS.Processing]
+// The export also holds Enhancing XP, used by the Enhancing tab
+const EXPORT_SKILLS = [...ALL_SKILLS, 'Enhancing']
 
 // Labels that end the list of XP gain sources on the stats screen
 const NOT_AN_XP_SOURCE =
   /^(luck\b|rare-find|max hit|attack speed|move speed|food healing|enhance odds)|speed$/i
 
+// The stats screen's HTML ("Your bonuses" .stats-group): each bonus has a head
+// (<span>label</span><b>+71%</b>) followed by its sources (<span>label<b>+15%</b></span>)
+function htmlPairs(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return [...doc.querySelectorAll('.stats-bonus-head, .stats-src > span')].flatMap((el) => {
+    const valueEl = el.querySelector('b')
+    if (!valueEl) return []
+    const value = parseFloat(valueEl.textContent)
+    const label = el.textContent.slice(0, -valueEl.textContent.length).trim()
+    return label && Number.isFinite(value) ? [[label, value]] : []
+  })
+}
+
 // Split the pasted stats into [label, value] pairs. Labels and values may be on the same
 // line ("XP gain +71%") or on separate lines ("XP gain" then "+71%").
 function statPairs(text) {
+  if (text.trimStart().startsWith('<')) return htmlPairs(text)
   const pairs = []
   let label = null
   for (const raw of text.split(/\r?\n/)) {
@@ -97,9 +114,11 @@ export function parseExport(text) {
   } catch {
     return { settings: {}, found: [], error: 'Not valid JSON — paste the whole export.' }
   }
+  // A userscript snapshot pasted by hand
+  if (data?.player?.skills) return parseSnapshot(data)
   const skillXp = {}
   for (const [name, value] of Object.entries(data?.skills ?? {})) {
-    const skill = matchSkill(name)
+    const skill = matchSkill(name, EXPORT_SKILLS)
     const xp = Number(value?.xp)
     if (skill && Number.isFinite(xp)) skillXp[skill] = xp
   }
@@ -125,4 +144,61 @@ export function parseExport(text) {
   return { settings, found }
 }
 
-const matchSkill = (name) => ALL_SKILLS.find((s) => s.toLowerCase() === name.toLowerCase())
+// Parse the snapshot from the "Character import" userscript: { player: { skills, house, collections } }.
+// Skills are plain XP numbers; collections are keyed by item ID, where ID = base ID + 1000 × rarity
+// (4 = Silver, 1004 = Uncommon Silver, 4004 = Legendary Silver).
+// Returns { settings: { skillXp, collection, lecternLevel, enhanceMastery }, found, error }.
+function parsePlayer(player) {
+  const skillXp = {}
+  for (const [name, xp] of Object.entries(player?.skills ?? {})) {
+    const skill = matchSkill(name, EXPORT_SKILLS)
+    if (skill && Number.isFinite(xp)) skillXp[skill] = xp
+  }
+  const count = Object.keys(skillXp).length
+  if (!count) return { settings: {}, found: [], error: 'No skills found in this snapshot.' }
+
+  const collection = {}
+  for (const [id, qty] of Object.entries(player.collections ?? {})) {
+    const rarity = RARITIES[Math.floor(id / 1000)]
+    const name = itemNameById(id % 1000)
+    if (!rarity || !name || !Number.isFinite(qty)) continue
+    collection[name] = { ...collection[name], [rarity.name]: qty }
+  }
+
+  const settings = { skillXp }
+  const found = [`XP for ${count} skills`]
+  const items = Object.keys(collection).length
+  if (items) {
+    settings.collection = collection
+    found.push(`collection log (${items} items)`)
+  }
+  const lectern = player.house?.lectern
+  if (Number.isFinite(lectern)) {
+    settings.lecternLevel = lectern
+    found.push(`Rune lectern level ${lectern}`)
+  }
+  // Missing until the first point is spent, so a missing key means 0
+  const enhanceMastery = player.masteries?.enhance ?? 0
+  if (Number.isFinite(enhanceMastery)) {
+    settings.enhanceMastery = enhanceMastery
+    found.push(`${enhanceMastery} Enhancing mastery points`)
+  }
+  return { settings, found }
+}
+
+// A whole userscript snapshot: the player, plus the "Your bonuses" stats HTML that the
+// Careless Tools userscript adds as stats: { html, capturedAt } (the dvi-lab script has none)
+export function parseSnapshot(snapshot) {
+  const player = parsePlayer(snapshot?.player)
+  const stats = snapshot?.stats?.html ? parseStats(snapshot.stats.html) : null
+  if (!stats?.found.length) return player
+  return {
+    settings: { ...player.settings, ...stats.settings },
+    found: [...player.found, ...stats.found],
+    warning: stats.warning,
+    // Only an error when neither part had anything
+    error: player.found.length ? undefined : player.error,
+  }
+}
+
+const matchSkill = (name, skills = ALL_SKILLS) => skills.find((s) => s.toLowerCase() === name.toLowerCase())

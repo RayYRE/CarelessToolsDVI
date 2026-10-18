@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { SKILL_GROUPS } from '../game/jobs.js'
-import { parseExport, parseStats } from '../import/parse.js'
+import { parseExport, parseSnapshot, parseStats } from '../import/parse.js'
+import { readCharacterSnapshot } from '../import/userscript.js'
 import { xpSourceScope } from '../game/xpSources.js'
 import { skillXpGain } from '../profile/xpGain.js'
 
@@ -37,6 +38,66 @@ function ImportBox({ title, hint, placeholder, parse, fallbackError, onImport })
       {message?.warning && <p className="warn">{message.warning}</p>}
     </div>
   )
+}
+
+// One-click import from the "Character import" userscript, when it runs on this site
+function UserscriptImport({ onImport }) {
+  const [message, setMessage] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const runImport = async () => {
+    setBusy(true)
+    try {
+      const snapshot = await readCharacterSnapshot()
+      const { settings, found, error, warning } = parseSnapshot(snapshot)
+      if (!found.length) throw new Error(error)
+      onImport(settings)
+      const ages = [
+        snapshot.capturedAt && `character ${timeAgo(snapshot.capturedAt)}`,
+        snapshot.stats?.capturedAt && `stats ${timeAgo(snapshot.stats.capturedAt)}`,
+      ].filter(Boolean)
+      const age = ages.length ? ` Captured: ${ages.join(', ')}.` : ''
+      // This app's userscript always sends `stats`, null until the in-game stats menu is opened
+      const noStats =
+        'stats' in snapshot && !snapshot.stats
+          ? 'No bonuses captured yet. Open the stats menu in the game once, then import again.'
+          : undefined
+      setMessage({
+        warn: false,
+        text: `Imported ${found.join(', ')}.${age}`,
+        warning: warning ?? noStats,
+      })
+    } catch (error) {
+      setMessage({ warn: true, text: error.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="panel import-box">
+      <h2>Userscript</h2>
+      <p className="hint">
+        Reads the CarelessToolsImport userscript: skill XP, collection log, Rune lectern level,
+        Enhancing mastery and your bonuses (XP gain, rare-find, luck, speed). Open the game with
+        the script on first. The dvi-lab userscript also works, without the bonuses.
+      </p>
+      <button type="button" onClick={runImport} disabled={busy}>
+        {busy ? 'Reading…' : 'Import from userscript'}
+      </button>
+      {message && <p className={message.warn ? 'warn' : 'hint'}>{message.text}</p>}
+      {message?.warning && <p className="warn">{message.warning}</p>}
+    </div>
+  )
+}
+
+// "5 min ago" for a capture time in ms
+function timeAgo(ms) {
+  const minutes = Math.round((Date.now() - ms) / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`
 }
 
 // What the profile currently holds, so players can see what's been imported
@@ -137,9 +198,10 @@ export default function ImportPanel({ profile, mergeImport }) {
     <>
       <SavedSummary profile={profile} />
       <div className="import-grid">
+        <UserscriptImport onImport={mergeImport} />
         <ImportBox
           title="Character export (JSON)"
-          hint="Settings -> Privacy -> Export my character. Sets skill XP and collection log."
+          hint="Settings -> Privacy -> Export my character, or a userscript snapshot. Sets skill XP and collection log."
           placeholder={`{
   "game": "Deep Vein Idle",
   "skills": { ... }
@@ -150,7 +212,7 @@ export default function ImportPanel({ profile, mergeImport }) {
         />
         <ImportBox
           title="Stats export"
-          hint="Copy your Stat page starting from Your bonuses. With XP gain sources showed"
+          hint="Easiest: in the game tab's console run copy(document.querySelector('.stats-group').outerHTML) and paste here. Or copy your Stat page starting from Your bonuses, with XP gain sources showing."
           placeholder={`Your bonuses click for sources
 XP gain
 +71%
