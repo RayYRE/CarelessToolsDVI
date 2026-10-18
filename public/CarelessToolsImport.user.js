@@ -3,12 +3,10 @@
 // @namespace    https://carelesstoolsdvi.carelesscapybara.workers.dev/
 // @downloadURL  https://carelesstoolsdvi.carelesscapybara.workers.dev/CarelessToolsImport.user.js
 // @updateURL    https://carelesstoolsdvi.carelesscapybara.workers.dev/CarelessToolsImport.user.js
-// @version      1.3
+// @version      1.5
 // @description  Reads your Deep Vein Idle character (skills, house, masteries, collection log, Your bonuses stats) for Careless Tools. Never sends game commands.
 // @match        https://deepveinidle.com/*
 // @match        https://carelesstoolsdvi.carelesscapybara.workers.dev/*
-// @match        http://localhost/*
-// @match        http://127.0.0.1/*
 // @run-at       document-start
 // @grant        unsafeWindow
 // @grant        GM_getValue
@@ -151,6 +149,10 @@
       worker.postMessage(data)
     }
 
+    // The game resyncs (new snapshot, sometimes a reconnect) whenever the tab comes back into
+    // focus. Every resync is still saved, but the status messages only show on the first load.
+    let characterCaptured = false
+
     page.WebSocket = new Proxy(NativeSocket, {
       construct(target, args) {
         const socket = Reflect.construct(target, args)
@@ -158,7 +160,7 @@
         if (url.host === location.host && url.pathname === '/ws') {
           latestSocket = socket
           epoch++
-          if (!stopped) show('Waiting for game data')
+          if (!stopped && !characterCaptured) show('Waiting for game data')
           send({ type: 'reset', epoch })
           socket.addEventListener('message', (event) => {
             if (stopped || socket !== latestSocket || typeof event.data !== 'string') return
@@ -253,7 +255,8 @@
         if (d.type === 'snapshot') {
           try {
             await GM_setValue(STORAGE_KEY, d.snapshot)
-            show('Careless Tools: character captured', 5000)
+            if (!characterCaptured) show('Careless Tools: character captured', 5000)
+            characterCaptured = true
             // The game's UI is up once the character arrives, so the stats window can be read
             startPeeking()
           } catch (error) {
