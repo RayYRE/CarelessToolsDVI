@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { fmt, formatDuration } from '../core/format.js'
+import { fmt, formatDuration, num } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
+import { clampLevel, levelForXp, xpForLevel } from '../core/xp.js'
 import {
   coinCost,
   compareProtectLevels,
+  enhanceOdds,
+  enhanceOddsSources,
   simulateRuns,
   successChance,
   voidshardCost,
@@ -37,9 +40,6 @@ const DEFAULT_FORM = {
   targetLevel: 10,
   itemId: DEFAULT_ITEM_ID,
   rarityMultiplier: 1,
-  enhancingLevel: 1,
-  lecternLevel: 0,
-  masteryLevel: 0,
   protectAt: '',
   voidshardPrice: 0,
   scrollPrice: 0,
@@ -50,7 +50,8 @@ const DEFAULT_FORM = {
   scrollBudget: '',
 }
 
-export default function Enhancing() {
+// Enhancing level, lectern and Enhance odds live in the shared profile so imports can fill them
+export default function Enhancing({ profile, setProfile }) {
   const [saved, set] = usePersistentState('enhancing-calculator-form', DEFAULT_FORM)
   // Fall back if a saved rarity no longer exists
   const form = RARITY_OPTIONS.some(([value]) => value === +saved.rarityMultiplier)
@@ -70,15 +71,23 @@ export default function Enhancing() {
     </label>
   )
 
+  const enhancingLevel = levelForXp(profile.skillXp.Enhancing ?? 0)
+  const profileField = (label, value, onChange, props = {}) => (
+    <label>
+      {label}
+      <input type="number" value={value} onChange={(e) => onChange(e.target.value)} {...props} />
+    </label>
+  )
+
   // Cleaned-up values the calculator actually uses
   const user = {
     start: Math.max(0, Math.floor(numberFrom('currentLevel'))),
     target: Math.min(MAX_TARGET_LEVEL, Math.floor(numberFrom('targetLevel'))),
     tierPrice: TIERS[itemById(form.itemId).tier - 1].price,
     rarityMultiplier: +form.rarityMultiplier,
-    enhancingLevel: Math.min(MAX_ENHANCING_LEVEL, Math.max(1, numberFrom('enhancingLevel', 1))),
-    lecternLevel: numberFrom('lecternLevel'),
-    masteryLevel: numberFrom('masteryLevel'),
+    enhancingLevel: Math.min(MAX_ENHANCING_LEVEL, enhancingLevel),
+    lecternLevel: profile.lecternLevel,
+    masteryPoints: profile.enhanceMastery,
     // Only the simulation uses these; the comparison table tries every protect level itself
     protectionOn: form.protectAt !== '',
     protectionThreshold: +form.protectAt,
@@ -165,10 +174,35 @@ export default function Enhancing() {
               ))}
             </select>
           </label>
-          {numberField('Enhancing level', 'enhancingLevel', { min: 1, max: MAX_ENHANCING_LEVEL })}
-          {numberField('Rune lectern level', 'lecternLevel', { min: 0, step: 1 })}
-          {numberField('Mastery level', 'masteryLevel', { min: 0, step: 1 })}
+          {profileField(
+            'Enhancing level',
+            enhancingLevel,
+            (v) =>
+              setProfile({
+                skillXp: { ...profile.skillXp, Enhancing: xpForLevel(clampLevel(v)) },
+              }),
+            { min: 1, max: MAX_ENHANCING_LEVEL },
+          )}
+          {profileField(
+            'Rune lectern level',
+            profile.lecternLevel,
+            (v) => setProfile({ lecternLevel: Math.max(0, num(v)) }),
+            { min: 0, step: 1 },
+          )}
+          {profileField(
+            'Enhancing mastery points',
+            profile.enhanceMastery,
+            (v) => setProfile({ enhanceMastery: Math.max(0, num(v)) }),
+            { min: 0, step: 1 },
+          )}
         </div>
+        <p className="hint">
+          Enhance odds +{+enhanceOdds(user).toFixed(2)}% (
+          {Object.entries(enhanceOddsSources(user))
+            .map(([label, value]) => `${label} +${+value.toFixed(2)}%`)
+            .join(', ')}
+          ). Should match Enhance odds on the stats screen.
+        </p>
         {isValid && (
           <>
             <p className="hint">Per attempt with your current stats. Check these match the game.</p>

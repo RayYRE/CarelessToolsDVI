@@ -1,9 +1,11 @@
 // Game rules, written as named constants
 const BASE_CHANCE_FLOOR = 0.2 // chance never drops below 20%
 const CHANCE_LOST_PER_LEVEL = 0.06 // each + costs 6% base chance
-const ENHANCING_BONUS_PER_LEVEL = 0.002 // 0.2% of the chance per Enhancing level above 1
-const LECTERN_BONUS_PER_LEVEL = 0.01 // 1% per lectern level
-const MASTERY_BONUS_PER_LEVEL = 0.0025 // 0.25% per mastery level
+// Sources of "Enhance odds" on the stats screen (%). They multiply, not add: Home +13%,
+// Enhancing level +9.4% and Masteries +0.25% show as +24% in game (1.13 × 1.094 × 1.0025)
+const ODDS_PER_ENHANCING_LEVEL = 0.2 // per Enhancing level above 1
+const ODDS_PER_LECTERN_LEVEL = 1 // per Rune lectern level (shown as "Home")
+const ODDS_PER_MASTERY_POINT = 0.25 // per Enhancing mastery point
 const VOIDSHARDS_PER_STEP = 3 // attempt costs 3 × (N + 1) Voidshards
 const MAX_ATTEMPTS_PER_RUN = 1e6 // safety stop for simulated runs
 const SIMULATION_RUNS = 10000
@@ -11,15 +13,22 @@ const SIMULATION_RUNS = 10000
 // Chance before any bonuses, when going from +level to +(level + 1)
 export const baseChance = (level) => Math.max(BASE_CHANCE_FLOOR, 1 - level * CHANCE_LOST_PER_LEVEL)
 
-// Chance with Enhancing level, lectern and mastery bonuses applied
+// Enhance odds (%) split into its sources, matching the stats screen
+export const enhanceOddsSources = (user) => ({
+  Home: ODDS_PER_LECTERN_LEVEL * user.lecternLevel,
+  'Enhancing level': ODDS_PER_ENHANCING_LEVEL * (user.enhancingLevel - 1),
+  Masteries: ODDS_PER_MASTERY_POINT * user.masteryPoints,
+})
+
+// Total Enhance odds (%)
+export const enhanceOdds = (user) =>
+  (Object.values(enhanceOddsSources(user)).reduce((total, value) => total * (1 + value / 100), 1) -
+    1) *
+  100
+
+// Chance with the Enhance odds bonus applied
 export const successChance = (level, user) =>
-  Math.min(
-    1,
-    baseChance(level) *
-      (1 + ENHANCING_BONUS_PER_LEVEL * (user.enhancingLevel - 1)) *
-      (1 + LECTERN_BONUS_PER_LEVEL * user.lecternLevel) *
-      (1 + MASTERY_BONUS_PER_LEVEL * user.masteryLevel),
-  )
+  Math.min(1, baseChance(level) * (1 + enhanceOdds(user) / 100))
 
 export const coinCost = (level, user) => user.tierPrice * user.rarityMultiplier * (level + 1)
 

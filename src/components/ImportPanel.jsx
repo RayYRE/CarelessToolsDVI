@@ -1,42 +1,78 @@
 import { useState } from 'react'
 import { SKILL_GROUPS } from '../game/jobs.js'
-import { parseExport, parseStats } from '../import/parse.js'
+import { parseSnapshot } from '../import/parse.js'
+import { readCharacterSnapshot } from '../import/userscript.js'
 import { xpSourceScope } from '../game/xpSources.js'
 import { skillXpGain } from '../profile/xpGain.js'
 
-// One paste box: runs `parse` on the text and hands the result to onImport
-function ImportBox({ title, hint, placeholder, parse, fallbackError, onImport }) {
-  const [text, setText] = useState('')
-  const [message, setMessage] = useState(null)
+// Served from public/. Tampermonkey offers to install any link ending in .user.js
+const USERSCRIPT_URL = `${import.meta.env.BASE_URL}CarelessToolsImport.user.js`
 
-  const runImport = () => {
-    const { settings, found, error, warning } = parse(text)
-    if (!found.length) {
-      setMessage({ warn: true, text: error ?? fallbackError })
-      return
+// One-click import from the CarelessToolsImport userscript, the only way to fill the profile
+function UserscriptImport({ onImport }) {
+  const [message, setMessage] = useState(null)
+  const [busy, setBusy] = useState(false)
+
+  const runImport = async () => {
+    setBusy(true)
+    try {
+      const snapshot = await readCharacterSnapshot()
+      const { settings, found, error, warning } = parseSnapshot(snapshot)
+      if (!found.length) throw new Error(error)
+      onImport(settings)
+      const ages = [
+        snapshot.capturedAt && `character ${timeAgo(snapshot.capturedAt)}`,
+        snapshot.stats?.capturedAt && `stats ${timeAgo(snapshot.stats.capturedAt)}`,
+      ].filter(Boolean)
+      const age = ages.length ? ` Captured: ${ages.join(', ')}.` : ''
+      // This app's userscript always sends `stats`, null until the in-game stats menu is opened
+      const noStats =
+        'stats' in snapshot && !snapshot.stats
+          ? 'No bonuses captured yet. Open the stats menu in the game once, then import again.'
+          : undefined
+      setMessage({
+        warn: false,
+        text: `Imported ${found.join(', ')}.${age}`,
+        warning: warning ?? noStats,
+      })
+    } catch (error) {
+      setMessage({ warn: true, text: error.message })
+    } finally {
+      setBusy(false)
     }
-    onImport(settings)
-    setMessage({ warn: false, text: `Imported ${found.join(', ')}.`, warning })
-    setText('')
   }
 
   return (
     <div className="panel import-box">
-      <h2>{title}</h2>
-      <p className="hint">{hint}</p>
-      <textarea
-        rows={8}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder={placeholder}
-      />
-      <button type="button" onClick={runImport} disabled={!text.trim()}>
-        Import
-      </button>
+      <h2>Import from the game</h2>
+      <p className="hint">
+        Needs the CarelessToolsImport userscript in Tampermonkey: with Tampermonkey installed,
+        Download userscript opens its install page. Open the game with it on and
+        wait for "stats captured" in the bottom-left corner, then import here. Sets skill XP,
+        collection log, Rune lectern level, Enhancing mastery and your bonuses (XP gain,
+        rare-find, luck, speed).
+      </p>
+      <div className="button-row">
+        <button type="button" onClick={runImport} disabled={busy}>
+          {busy ? 'Reading…' : 'Import from userscript'}
+        </button>
+        <a className="button" href={USERSCRIPT_URL} target="_blank" rel="noreferrer">
+          Download userscript
+        </a>
+      </div>
       {message && <p className={message.warn ? 'warn' : 'hint'}>{message.text}</p>}
       {message?.warning && <p className="warn">{message.warning}</p>}
     </div>
   )
+}
+
+// "5 min ago" for a capture time in ms
+function timeAgo(ms) {
+  const minutes = Math.round((Date.now() - ms) / 60000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.round(minutes / 60)
+  return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} days ago`
 }
 
 // What the profile currently holds, so players can see what's been imported
@@ -111,7 +147,7 @@ function XpGainSources({ profile }) {
       )}
       {sources.length > 0 && sum !== profile.xpGain && (
         <p className="warn">
-          Sources add up to {sum}%, but the total is {profile.xpGain}%. Check the paste.
+          Sources add up to {sum}%, but the total is {profile.xpGain}%. Import again from the game.
         </p>
       )}
       <div className="controls adjust-result">
@@ -136,34 +172,7 @@ export default function ImportPanel({ profile, mergeImport }) {
   return (
     <>
       <SavedSummary profile={profile} />
-      <div className="import-grid">
-        <ImportBox
-          title="Character export (JSON)"
-          hint="Settings -> Privacy -> Export my character. Sets skill XP and collection log."
-          placeholder={`{
-  "game": "Deep Vein Idle",
-  "skills": { ... }
-}`}
-          parse={parseExport}
-          fallbackError="No skills found in this export."
-          onImport={mergeImport}
-        />
-        <ImportBox
-          title="Stats export"
-          hint="Copy your Stat page starting from Your bonuses. With XP gain sources showed"
-          placeholder={`Your bonuses click for sources
-XP gain
-+71%
-Home (combat)
-+15%
-Gatherer's brew
-+10%
-...`}
-          parse={parseStats}
-          fallbackError='No stats recognised — paste the "Your bonuses" section.'
-          onImport={mergeImport}
-        />
-      </div>
+      <UserscriptImport onImport={mergeImport} />
       <XpGainSources profile={profile} />
     </>
   )

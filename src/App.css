@@ -58,7 +58,9 @@ textarea {
   }
 }
 
-button {
+button,
+a.button {
+  display: inline-block;
   font: inherit;
   color: var(--text-h);
   background: var(--panel-raised);
@@ -236,12 +238,6 @@ tbody tr {
   color: var(--muted);
 }
 
-.import-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-}
-
 .import-box {
   display: flex;
   flex-direction: column;
@@ -256,15 +252,15 @@ tbody tr {
     margin: 0;
   }
 
-  textarea {
-    font-size: 0.9rem;
-    width: 100%;
-    resize: vertical;
+  .button-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
   }
+}
 
-  button {
-    align-self: flex-start;
-  }
+a.button {
+  text-decoration: none;
 }
 
 .tabs {

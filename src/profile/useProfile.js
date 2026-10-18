@@ -8,6 +8,9 @@ const DEFAULT_PROFILE = {
   xpGain: 0,
   xpGainSources: [],
   rareFind: 0,
+  // Enhancing tab: Rune lectern level and Enhancing mastery points
+  lecternLevel: 0,
+  enhanceMastery: 0,
   // Per-skill maps, e.g. { Mining: 8171 }
   skillXp: {},
   luck: {},
