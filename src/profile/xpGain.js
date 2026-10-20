@@ -16,5 +16,5 @@ export const hasXpSources = (profile) => (profile.xpGainSources ?? []).length > 
 
 export const MISSING_XP_SOURCES =
   'XP gain was imported without its sources, so it may include bonuses that ' +
-  "don't apply to these skills (e.g. Home (combat)). Open the stats menu in the game, " +
-  'then import again.'
+  "don't apply to these skills (e.g. Home (combat)). Import again: open the stats menu in " +
+  'the game for the userscript, or click "XP gain" on the stats page before copying.'
