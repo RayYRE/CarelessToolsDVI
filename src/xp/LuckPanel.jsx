@@ -1,7 +1,8 @@
 import { fmt, num, pct } from '../core/format.js'
 import { xpPerAction } from '../core/xp.js'
 
-export default function LuckPanel({ skill, profile, setProfile, xpGain, odds, chances, baseXp }) {
+// rarityXp: false for Thieving stalls, where rarity only applies to the drop, not the XP
+export default function LuckPanel({ skill, profile, setProfile, xpGain, odds, chances, baseXp, rarityXp = true }) {
   const { luck, rareFind } = profile
   return (
     <section className="panel">
@@ -37,6 +38,9 @@ export default function LuckPanel({ skill, profile, setProfile, xpGain, odds, ch
         Rare-find = brew + Vein Blessing + hot skill + town events + lucky shrine + mastery, added
         together.
       </p>
+      {!rarityXp && (
+        <p className="hint">Stalls always give the same XP; luck only rolls the rarity of the drop.</p>
+      )}
       <div className="table-wrap">
         <table>
           <thead>
@@ -44,7 +48,7 @@ export default function LuckPanel({ skill, profile, setProfile, xpGain, odds, ch
               <th>Rarity</th>
               <th>Chance / action</th>
               <th>1 in</th>
-              <th>XP / action</th>
+              {rarityXp && <th>XP / action</th>}
             </tr>
           </thead>
           <tbody>
@@ -53,7 +57,7 @@ export default function LuckPanel({ skill, profile, setProfile, xpGain, odds, ch
                 <td>{r.name}</td>
                 <td>{pct(r.chance)}</td>
                 <td>{r.chance > 0 ? fmt(1 / r.chance) : '—'}</td>
-                <td>{fmt(xpPerAction(baseXp, r.multiplier, xpGain))}</td>
+                {rarityXp && <td>{fmt(xpPerAction(baseXp, r.multiplier, xpGain))}</td>}
               </tr>
             ))}
           </tbody>

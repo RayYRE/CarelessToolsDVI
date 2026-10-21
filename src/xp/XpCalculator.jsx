@@ -21,6 +21,7 @@ import { FAILURES, JOBS, SKILL_GROUPS, isGathering } from '../game/jobs.js'
 import { MAX_LEVEL } from '../game/levels.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CountsPanel from './CountsPanel.jsx'
+import DropPanel from './DropPanel.jsx'
 import FailurePanel from './FailurePanel.jsx'
 import LuckPanel from './LuckPanel.jsx'
 
@@ -55,17 +56,20 @@ export default function XpCalculator({ profile, setProfile }) {
   const failure = FAILURES[skill]
   const targetLevel = levelForXp(targetXp)
 
+  // Average rarity XP multiplier for a gathering job; stalls get no rarity bonus
+  const multiplierFor = (j) => (j.stall ? 1 : avgMultiplier)
+
   const rows = skillJobs.map((baseJob) => {
     const j = { ...baseJob, time: actionTime(baseJob.time, skillSpeed) }
     const plan = gathering
-      ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, avgMultiplier, xpGain))
+      ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, multiplierFor(j), xpGain))
       : fixedCountPlan(j, currentXp, targetXp, xpGain, counts)
     // Averages per attempt over the whole grind, failures and stuns included.
     // With nothing left to earn, fall back to the rate at the current level.
     const fail = failChance(j, currentLevel)
     const perAction = plan.actions
       ? plan.xpGained / plan.actions
-      : xpPerAction(j.xp, gathering ? avgMultiplier : 1, xpGain) * (1 - fail)
+      : xpPerAction(j.xp, gathering ? multiplierFor(j) : 1, xpGain) * (1 - fail)
     const xpPerHour = plan.seconds
       ? (plan.xpGained / plan.seconds) * 3600
       : (perAction / (j.time + fail * (j.fail?.stun ?? 0))) * 3600
@@ -153,6 +157,7 @@ export default function XpCalculator({ profile, setProfile }) {
           odds={odds}
           chances={chances}
           baseXp={job.xp}
+          rarityXp={!job.stall}
         />
       ) : (
         <CountsPanel
@@ -165,6 +170,8 @@ export default function XpCalculator({ profile, setProfile }) {
           targetXp={targetXp}
         />
       )}
+
+      {job.drop && <DropPanel drop={job.drop} plan={selected.plan} chances={chances} />}
 
       {failure && job.fail && (
         <FailurePanel
@@ -211,10 +218,12 @@ export default function XpCalculator({ profile, setProfile }) {
         )}
         <p className="formula">
           {gathering
-            ? `⌈ ${fmt(remaining)} ÷ (${job.xp} × avg ×${avgMultiplier.toFixed(4)} × ${gain}${job.fail ? ' × success' : ''}) ⌉ = ${fmt(selected.actions)}`
+            ? `⌈ ${fmt(remaining)} ÷ (${job.xp}${job.stall ? '' : ` × avg ×${avgMultiplier.toFixed(4)}`} × ${gain}${job.fail ? ' × success' : ''}) ⌉ = ${fmt(selected.actions)}`
             : `${fmt(selected.plan.fixedActions)} rarer + ⌈ (${fmt(remaining)} − ${fmt(selected.plan.fixedXp)}) ÷ (${job.xp} × ${gain}${job.fail ? ' × success' : ''}) ⌉ Common = ${fmt(selected.actions)}`}
         </p>
-        {gathering && <p className="hint">Average over many actions — actual luck will vary.</p>}
+        {gathering && !job.stall && (
+          <p className="hint">Average over many actions — actual luck will vary.</p>
+        )}
         {selected.plan.failed > 0 && (
           <p className="hint">
             Includes ≈{fmt(selected.plan.failed)} {failure.noun.toLowerCase()} attempts that give no

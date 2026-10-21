@@ -25,6 +25,15 @@ const job = (skill, category, level, name, xp, time, fail) => ({ skill, category
 const burns = (level) => ({ chance: 30, never: level + 25, stun: 0 })
 const caught = (chance, never, stun) => ({ chance, never, stun })
 
+// Thieving stalls: rarity doesn't change their XP. Instead a successful steal may also `drop`
+// an item (1 in `oneIn`), and only that drop rolls a rarity with luck.
+const stall = (level, name, xp, time, fail, drop) => ({
+  ...job('Thieving', 'Stalls', level, name, xp, time, fail),
+  stall: true,
+  drop,
+})
+const drop = (item, oneIn) => ({ item, oneIn })
+
 // Metal-tiered items (Bronze 1 → Meteoric 85)
 const metalTier = (skill, category, item, xps, time = 3) =>
   METALS.map((m, i) => job(skill, category, METAL_LEVELS[i], `${m} ${item}`, xps[i], time))
@@ -70,10 +79,10 @@ export const JOBS = [
   job('Woodcutting', '', 60, 'Yew', 29, 6),
   job('Woodcutting', '', 75, 'Magic', 48, 7.2),
 
-  job('Thieving', 'Stalls', 1, 'Bread stall', 8, 3.6, caught(25, 30, 4.8)),
-  job('Thieving', 'Stalls', 25, 'Silk stall', 30, 4.2, caught(30, 60, 6)),
-  job('Thieving', 'Stalls', 50, 'Gem stall', 80, 4.8, caught(32, 85, 7.2)),
-  job('Thieving', 'Stalls', 75, 'Relic stall', 200, 5.4, caught(35, 110, 9)),
+  stall(1, 'Bread stall', 8, 3.6, caught(25, 30, 4.8)),
+  stall(25, 'Silk stall', 30, 4.2, caught(30, 60, 6), drop('Nightshade seed', 30)),
+  stall(50, 'Gem stall', 80, 4.8, caught(32, 85, 7.2), drop('Rough gem', 25)),
+  stall(75, 'Relic stall', 200, 5.4, caught(35, 110, 9), drop('Voidshard', 33)),
   job('Thieving', 'Cloth', 1, 'Linen line', 7, 4.2, caught(25, 30, 4.8)),
   job('Thieving', 'Cloth', 25, 'Silk cart', 26, 4.8, caught(30, 60, 6)),
   job('Thieving', 'Cloth', 50, 'Gilded loom', 70, 5.4, caught(32, 85, 7.2)),
