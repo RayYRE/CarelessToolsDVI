@@ -3,8 +3,8 @@
 // @namespace    https://carelesstoolsdvi.carelesscapybara.workers.dev/
 // @downloadURL  https://carelesstoolsdvi.carelesscapybara.workers.dev/CarelessToolsImport.user.js
 // @updateURL    https://carelesstoolsdvi.carelesscapybara.workers.dev/CarelessToolsImport.user.js
-// @version      1.5
-// @description  Reads your Deep Vein Idle character (skills, house, masteries, collection log, Your bonuses stats) for Careless Tools. Never sends game commands.
+// @version      1.6
+// @description  Reads your Deep Vein Idle character (skills, house, masteries, collection log, storage, Your bonuses stats) for Careless Tools. Never sends game commands.
 // @match        https://deepveinidle.com/*
 // @match        https://carelesstoolsdvi.carelesscapybara.workers.dev/*
 // @run-at       document-start
@@ -27,7 +27,19 @@
   const STATS_RETRY_MS = 30 * 1000 // wait before trying again if a peek found nothing
   const STATS_PEEK_TRIES = 3
   // Everything the app reads from the player (see parseSnapshot in src/import/parse.js)
-  const FIELDS = ['lastTick', 'skills', 'house', 'masteries', 'collections']
+  const FIELDS = [
+    'lastTick',
+    'skills',
+    'house',
+    'masteries',
+    'collections',
+    // Storage, for planning with what you have: bank and overflow are { itemId: qty },
+    // pack is [{ itemId, qty }], homeBank is null until bought
+    'bank',
+    'pack',
+    'overflow',
+    'homeBank',
+  ]
 
   // Runs in a Worker so parsing the game's large messages never blocks the page
   function captureWorker() {

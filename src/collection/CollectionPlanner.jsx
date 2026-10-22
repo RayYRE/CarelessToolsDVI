@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import IconSelect from '../components/IconSelect.jsx'
 import XpInput from '../components/XpInput.jsx'
 import { num } from '../core/format.js'
@@ -8,7 +8,7 @@ import { skillIcon } from '../game/icons.js'
 import { SKILL_GROUPS } from '../game/jobs.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CollectionLog from './CollectionLog.jsx'
-import { runPlan } from './plan.js'
+import { maximisePoints, runPlan } from './plan.js'
 import TierPlan from './TierPlan.jsx'
 
 const DEFAULTS = {
@@ -37,6 +37,28 @@ export default function CollectionPlanner({ profile, setProfile }) {
     () => runPlan({ steps, startXp: currentXp, xpGain, speed: skillSpeed, collection }),
     [steps, currentXp, xpGain, skillSpeed, collection],
   )
+
+  // Build the plan that earns the most points from what's in storage
+  const inventory = profile.inventory?.items ?? {}
+  const hasInventory = Object.keys(inventory).length > 0
+  const [maximiseNote, setMaximiseNote] = useState(null)
+  const maximise = () => {
+    if (steps.length && !window.confirm(`Replace your ${steps.length} planned steps?`)) return
+    const best = maximisePoints({
+      skill,
+      startXp: currentXp,
+      xpGain,
+      speed: skillSpeed,
+      collection,
+      inventory,
+    })
+    setSteps(best)
+    setMaximiseNote(
+      best.length
+        ? `Planned ${best.length} steps using only what's in your storage.`
+        : `Nothing in your storage completes a ${skill} tier.`,
+    )
+  }
 
   return (
     <>
@@ -88,6 +110,9 @@ export default function CollectionPlanner({ profile, setProfile }) {
         startLevel={currentLevel}
         onRemove={(i) => setSteps(steps.filter((_, j) => j !== i))}
         onClear={() => setSteps([])}
+        canMaximise={hasInventory}
+        onMaximise={maximise}
+        note={maximiseNote}
       />
       
       {!hasCollection && (

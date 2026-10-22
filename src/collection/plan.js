@@ -2,7 +2,7 @@ import { actionTime, levelForXp, walk, xpPerAction } from '../core/xp.js'
 import { MILESTONES, itemName, milestonePoints, nextMilestoneIndex } from '../game/collection.js'
 import { JOBS } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
-import { materialsFor } from '../game/recipes.js'
+import { RECIPES, materialsFor } from '../game/recipes.js'
 
 const key = (item, rarity) => `${item}|${rarity}`
 
@@ -80,4 +80,56 @@ export function tierStep(job, rarity, collected, xp, xpGain, speed) {
     seconds: run.attempts * actionTime(job.time, speed) + run.failed * (job.fail?.stun ?? 0),
     points: milestonePoints(index, rarity.name),
   }
+}
+
+/**
+ * Builds a plan that collects as many points as possible using only what's in storage.
+ * Greedy: each round takes the affordable next tier with the most points for the smallest
+ * share of the materials it uses, takes those materials out of storage, puts the crafted
+ * items in (so new bars can feed later crafts), and repeats until nothing more fits.
+ * Jobs unlock as the plan's XP raises the level. Returns steps for runPlan.
+ */
+export function maximisePoints({ skill, startXp, xpGain, speed, collection, inventory, maxSteps = 300 }) {
+  const jobs = JOBS.filter((j) => j.skill === skill && RECIPES[j.name])
+  const stock = {}
+  for (const [item, byRarity] of Object.entries(inventory)) {
+    for (const [rarity, qty] of Object.entries(byRarity)) stock[key(item, rarity)] = qty
+  }
+  const counts = {}
+  const have = (item, rarity) => counts[key(item, rarity)] ?? collection[item]?.[rarity] ?? 0
+  let xp = startXp
+  const steps = []
+
+  while (steps.length < maxSteps) {
+    const level = levelForXp(xp)
+    let best = null
+    for (const job of jobs) {
+      if (job.level > level) continue
+      const item = itemName(job)
+      for (const rarity of RARITIES) {
+        const step = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed)
+        if (step.done || !step.points) continue
+        // Cost = share of each material this uses up; unaffordable steps are skipped
+        let cost = 0
+        for (const m of step.materials) {
+          const available = stock[key(m.material, m.rarity)] ?? 0
+          cost = m.quantity > available ? Infinity : cost + m.quantity / available
+        }
+        if (!(cost < Infinity)) continue
+        const score = step.points / cost
+        if (!best || score > best.score || (score === best.score && step.seconds < best.step.seconds)) {
+          best = { job, item, rarity, step, score }
+        }
+      }
+    }
+    if (!best) break
+
+    const { job, item, rarity, step } = best
+    for (const m of step.materials) stock[key(m.material, m.rarity)] -= m.quantity
+    stock[key(item, rarity.name)] = (stock[key(item, rarity.name)] ?? 0) + step.items
+    counts[key(item, rarity.name)] = step.to
+    xp += step.xpGained
+    steps.push({ job: job.name, rarity: rarity.name })
+  }
+  return steps
 }
