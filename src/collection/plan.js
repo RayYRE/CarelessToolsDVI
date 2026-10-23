@@ -89,8 +89,21 @@ export function tierStep(job, rarity, collected, xp, xpGain, speed) {
  * items in (so new bars can feed later crafts), and repeats until nothing more fits.
  * Jobs unlock as the plan's XP raises the level. Returns steps for runPlan.
  */
-export function maximisePoints({ skill, startXp, xpGain, speed, collection, inventory, maxSteps = 300 }) {
-  const jobs = JOBS.filter((j) => j.skill === skill && RECIPES[j.name])
+// `off` ({ levels, rarities }) lists item levels and rarities the search must not plan.
+export function maximisePoints({
+  skill,
+  startXp,
+  xpGain,
+  speed,
+  collection,
+  inventory,
+  off = {},
+  maxSteps = 300,
+}) {
+  const jobs = JOBS.filter(
+    (j) => j.skill === skill && RECIPES[j.name] && !off.levels?.includes(j.level),
+  )
+  const rarities = RARITIES.filter((r) => !off.rarities?.includes(r.name))
   const stock = {}
   for (const [item, byRarity] of Object.entries(inventory)) {
     for (const [rarity, qty] of Object.entries(byRarity)) stock[key(item, rarity)] = qty
@@ -106,7 +119,7 @@ export function maximisePoints({ skill, startXp, xpGain, speed, collection, inve
     for (const job of jobs) {
       if (job.level > level) continue
       const item = itemName(job)
-      for (const rarity of RARITIES) {
+      for (const rarity of rarities) {
         const step = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed)
         if (step.done || !step.points) continue
         // Cost = share of each material this uses up; unaffordable steps are skipped

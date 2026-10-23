@@ -5,7 +5,7 @@ import { num } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
 import { levelForXp } from '../core/xp.js'
 import { skillIcon } from '../game/icons.js'
-import { SKILL_GROUPS } from '../game/jobs.js'
+import { JOBS, SKILL_GROUPS } from '../game/jobs.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CollectionLog from './CollectionLog.jsx'
 import { maximisePoints, runPlan } from './plan.js'
@@ -42,6 +42,12 @@ export default function CollectionPlanner({ profile, setProfile }) {
   const inventory = profile.inventory?.items ?? {}
   const hasInventory = Object.keys(inventory).length > 0
   const [maximiseNote, setMaximiseNote] = useState(null)
+  // Item levels and rarities switched off for the search, per skill
+  const searchOff = settings.searchOff?.[skill] ?? {}
+  const setSearchOff = (next) => set({ searchOff: { ...settings.searchOff, [skill]: next } })
+  const jobLevels = [...new Set(JOBS.filter((j) => j.skill === skill).map((j) => j.level))].sort(
+    (a, b) => a - b,
+  )
   const maximise = () => {
     if (steps.length && !window.confirm(`Replace your ${steps.length} planned steps?`)) return
     const best = maximisePoints({
@@ -51,12 +57,13 @@ export default function CollectionPlanner({ profile, setProfile }) {
       speed: skillSpeed,
       collection,
       inventory,
+      off: searchOff,
     })
     setSteps(best)
     setMaximiseNote(
       best.length
         ? `Planned ${best.length} steps using only what's in your storage.`
-        : `Nothing in your storage completes a ${skill} tier.`,
+        : `Nothing in your storage completes a ${skill} tier with these settings.`,
     )
   }
 
@@ -112,6 +119,7 @@ export default function CollectionPlanner({ profile, setProfile }) {
         onClear={() => setSteps([])}
         canMaximise={hasInventory}
         onMaximise={maximise}
+        search={{ levels: jobLevels, playerLevel: currentLevel, off: searchOff, onChange: setSearchOff }}
         note={maximiseNote}
       />
       

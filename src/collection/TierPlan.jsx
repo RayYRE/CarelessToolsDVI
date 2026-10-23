@@ -4,6 +4,7 @@ import Icon from '../components/Icon.jsx'
 import { formatMilestone } from '../game/collection.js'
 import { iconFor } from '../game/icons.js'
 import { RARITIES } from '../game/rarities.js'
+import SearchSettings from './SearchSettings.jsx'
 
 // Columns the steps can be sorted by. Sorting only changes the display: the plan still runs
 // in its own order (shown in #), since each step starts where the ones before it left off.
@@ -46,7 +47,7 @@ function Materials({ list }) {
   ))
 }
 
-export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaximise, onMaximise, note }) {
+export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaximise, onMaximise, note, search }) {
   const { rows } = plan
   const [sort, setSort] = useState(null)
   // Keep each step's plan position for # and for removing it
@@ -61,6 +62,11 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
       <div className="panel-header">
         <h2>Tier plan ({rows.length} steps)</h2>
         <div className="chips">
+          {rows.length > 0 && (
+            <button type="button" className="chip" title="Remove every planned step" onClick={onClear}>
+              Clear
+            </button>
+          )}
           <button
             type="button"
             className="chip"
@@ -72,13 +78,9 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
             }
             onClick={onMaximise}
           >
-            Maximise points
+            Calculate points (Greedy search)
           </button>
-          {rows.length > 0 && (
-            <button type="button" className="chip" title="Remove every planned step" onClick={onClear}>
-              Clear
-            </button>
-          )}
+          <SearchSettings {...search} />
         </div>
       </div>
       {note && <p className="hint">{note}</p>}
