@@ -115,7 +115,7 @@ export default function CollectionPlanner({ profile, setProfile }) {
       <TierPlan
         plan={plan}
         startLevel={currentLevel}
-        onRemove={(i) => setSteps(steps.filter((_, j) => j !== i))}
+        onRemove={(indices) => setSteps(steps.filter((_, j) => !indices.includes(j)))}
         onClear={() => setSteps([])}
         canMaximise={hasInventory}
         onMaximise={maximise}

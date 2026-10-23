@@ -47,14 +47,40 @@ function Materials({ list }) {
   ))
 }
 
+// One table row per item and rarity: its planned tiers merged, e.g. 1 → 10 and 10 → 100
+// become 1 → 100. Rows keep the plan positions of their steps, for # and for removing them.
+function groupSteps(rows) {
+  const groups = new Map()
+  rows.forEach((s, i) => {
+    const key = `${s.item}|${s.rarity}`
+    const g = groups.get(key)
+    if (!g) {
+      groups.set(key, { ...s, materials: [...s.materials], indices: [i] })
+      return
+    }
+    g.indices.push(i)
+    g.to = s.to
+    g.items += s.items
+    g.points += s.points
+    g.levelAfter = s.levelAfter
+    g.done = g.done && s.done
+    for (const m of s.materials) {
+      const same = g.materials.find((x) => x.material === m.material && x.rarity === m.rarity)
+      if (same) same.quantity += m.quantity
+      else g.materials.push({ ...m })
+    }
+  })
+  return [...groups.values()]
+}
+
 export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaximise, onMaximise, note, search }) {
   const { rows } = plan
   const [sort, setSort] = useState(null)
-  // Keep each step's plan position for # and for removing it
-  const shown = rows.map((s, i) => ({ s, i }))
+  // Grouped rows in plan order (by each group's first step), or sorted by a column
+  const shown = groupSteps(rows)
   if (sort) {
     const value = SORT_VALUES[sort.column]
-    shown.sort((a, b) => (value(a.s) - value(b.s)) * sort.dir || a.i - b.i)
+    shown.sort((a, b) => (value(a) - value(b)) * sort.dir || a.indices[0] - b.indices[0])
   }
   const sortProps = { sort, onSort: setSort }
   return (
@@ -123,9 +149,9 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
                 </tr>
               </thead>
               <tbody>
-                {shown.map(({ s, i }) => (
-                  <tr key={i} className="static">
-                    <td>{i + 1}</td>
+                {shown.map((s) => (
+                  <tr key={`${s.item}|${s.rarity}`} className="static">
+                    <td>{s.indices[0] + 1}</td>
                     <td>
                       <span className="with-icon">
                         <Icon src={iconFor(s.item)} />
@@ -149,7 +175,7 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
                         className="exclude"
                         title={`Remove ${s.item} (${s.rarity}) from the plan`}
                         aria-label={`Remove ${s.item} (${s.rarity}) from the plan`}
-                        onClick={() => onRemove(i)}
+                        onClick={() => onRemove(s.indices)}
                       >
                         ✕
                       </button>
