@@ -770,3 +770,69 @@ button.tile {
     margin-top: 12px;
   }
 }
+
+/* Clickable table headings that sort the column (tier plan) */
+button.sort-header {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: none;
+    color: var(--text-h);
+  }
+}
+
+/* Pop-out menu anchored under its button (tier plan search settings) */
+.popover-anchor {
+  position: relative;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 220px;
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+
+  fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  legend {
+    padding: 0 0 4px;
+    color: var(--text-h);
+    font-size: 0.85rem;
+  }
+
+  > button {
+    align-self: flex-start;
+  }
+}
+
+/* Checkbox with its label on one line */
+label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  cursor: pointer;
+}

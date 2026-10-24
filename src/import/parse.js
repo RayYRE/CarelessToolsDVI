@@ -148,6 +148,27 @@ export function parseExport(text) {
 // Skills are plain XP numbers; collections are keyed by item ID, where ID = base ID + 1000 × rarity
 // (4 = Silver, 1004 = Uncommon Silver, 4004 = Legendary Silver).
 // Returns { settings: { skillXp, collection, lecternLevel, enhanceMastery }, found, error }.
+// Everything you own across storage, as { "Iron bar": { Common: 120, Uncommon: 4 } }.
+// Item IDs are base ID + 1000 × rarity; gear with a + level adds 10,000 per level and is
+// skipped, since it's never a crafting material.
+function inventoryFrom(player) {
+  const items = {}
+  const add = (id, qty) => {
+    id = Number(id)
+    if (!Number.isFinite(qty) || qty <= 0 || !(id < 10000)) return
+    const rarity = RARITIES[Math.floor(id / 1000)]
+    const name = itemNameById(id % 1000)
+    if (!rarity || !name) return
+    items[name] = { ...items[name], [rarity.name]: (items[name]?.[rarity.name] ?? 0) + qty }
+  }
+  const isMap = (v) => v && typeof v === 'object' && !Array.isArray(v)
+  for (const store of [player.bank, player.overflow, player.homeBank]) {
+    if (isMap(store)) for (const [id, qty] of Object.entries(store)) add(id, qty)
+  }
+  for (const slot of Array.isArray(player.pack) ? player.pack : []) add(slot?.itemId, slot?.qty)
+  return items
+}
+
 function parsePlayer(player) {
   const skillXp = {}
   for (const [name, xp] of Object.entries(player?.skills ?? {})) {
@@ -171,6 +192,13 @@ function parsePlayer(player) {
   if (items) {
     settings.collection = collection
     found.push(`collection log (${items} items)`)
+  }
+  // Older userscript versions don't send storage; leave the saved inventory alone then
+  if (player.bank || player.pack) {
+    const inventory = inventoryFrom(player)
+    // Wrapped so an import replaces the whole inventory (imports merge maps key by key)
+    settings.inventory = { items: inventory }
+    found.push(`storage (${Object.keys(inventory).length} items)`)
   }
   const lectern = player.house?.lectern
   if (Number.isFinite(lectern)) {

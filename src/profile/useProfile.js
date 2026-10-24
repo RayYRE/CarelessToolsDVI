@@ -17,6 +17,8 @@ const DEFAULT_PROFILE = {
   speed: {},
   // Collection log counts: { "Bronze bar": { Common: 228, Uncommon: 74 } }
   collection: {},
+  // Everything in storage, same shape as collection, replaced on every import
+  inventory: { items: {} },
 }
 
 // Before the profile existed these lived in the XP calculator's settings
