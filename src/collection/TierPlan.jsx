@@ -55,7 +55,9 @@ function groupSteps(rows) {
     const key = `${s.item}|${s.rarity}`
     const g = groups.get(key)
     if (!g) {
-      groups.set(key, { ...s, materials: [...s.materials], indices: [i] })
+      // Copy each material too: the totals below must not change the plan's own steps,
+      // which are reused on every render
+      groups.set(key, { ...s, materials: s.materials.map((m) => ({ ...m })), indices: [i] })
       return
     }
     g.indices.push(i)
