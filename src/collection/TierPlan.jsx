@@ -104,7 +104,7 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
             }
             onClick={onMaximise}
           >
-            Calculate points (Greedy search)
+            Calculate points (Greedy search | Userscript 1.6)
           </button>
           <SearchSettings {...search} />
         </div>
