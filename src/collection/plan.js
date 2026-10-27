@@ -1,6 +1,6 @@
-import { levelForXp, walk, xpPerAction } from '../core/xp.js'
-import { MILESTONES, itemName, milestonePoints, nextMilestoneIndex } from '../game/collection.js'
-import { JOBS } from '../game/jobs.js'
+import { expectedMultiplier, levelForXp, walk, xpPerAction } from '../core/xp.js'
+import { MILESTONES, itemName, milestonePoints, nextMilestoneIndex, pointsBetween } from '../game/collection.js'
+import { JOBS, isGathering } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
 import { RECIPES, materialsFor } from '../game/recipes.js'
 
@@ -12,14 +12,18 @@ const key = (item, rarity) => `${item}|${rarity}`
  * planning the same cell twice plans the tier after.
  *
  * steps: [{ job: job name, rarity: rarity name }]
+ * chances: rarity chances from the player's luck (rarityChances), used by gathering skills
  * Returns the computed steps plus the end state: XP, level, and a lookup for planned counts.
  */
-export function runPlan({ steps, startXp, xpGain, speed, collection }) {
+export function runPlan({ steps, startXp, xpGain, speed, collection, chances }) {
   const counts = {}
   const have = (item, rarity) => counts[key(item, rarity)] ?? collection[item]?.[rarity] ?? 0
   let xp = startXp
   let seconds = 0
   let points = 0
+  // Gathering: gathers planned so far per item. Every rarity of an item comes from the same
+  // gathers, so each step only adds what it still needs on top of these.
+  const gathered = {}
 
   const rows = steps.map((step) => {
     const job = JOBS.find((j) => j.name === step.job)
@@ -27,11 +31,15 @@ export function runPlan({ steps, startXp, xpGain, speed, collection }) {
     if (!job || !rarity) return null
     const item = itemName(job)
     const levelBefore = levelForXp(xp)
-    const r = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed)
-    counts[key(item, rarity.name)] = r.to
+    const r = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed, {
+      chances,
+      have: (name) => have(item, name),
+    })
+    for (const [name, qty] of Object.entries(r.gained)) counts[key(item, name)] = have(item, name) + qty
     xp += r.xpGained
     seconds += r.seconds
     points += r.points
+    if (r.gathers !== undefined) gathered[item] = (gathered[item] ?? 0) + r.gathers
     return {
       ...step,
       ...r,
@@ -41,6 +49,8 @@ export function runPlan({ steps, startXp, xpGain, speed, collection }) {
       levelBefore,
       levelAfter: levelForXp(xp),
       totalSeconds: seconds,
+      // Gathers this item needs in total by the end of this step
+      itemGathers: gathered[item],
     }
   })
 
@@ -58,12 +68,15 @@ function totalMaterials(rows) {
   return Object.values(totals).sort((a, b) => b.quantity - a.quantity)
 }
 
-// Craft one item/rarity from `collected` up to its next milestone, starting at `xp`
-export function tierStep(job, rarity, collected, xp, xpGain, speed) {
+// Craft one item/rarity from `collected` up to its next milestone, starting at `xp`.
+// Gathering skills can't pick a rarity, so they go through gatherStep using `gather`:
+// { chances, have(rarityName) } with the player's rarity chances and the item's current counts.
+export function tierStep(job, rarity, collected, xp, xpGain, speed, gather) {
   const index = nextMilestoneIndex(collected)
   if (index < 0) {
-    return { done: true, from: collected, to: collected, items: 0, materials: [], xpGained: 0, seconds: 0, points: 0 }
+    return { done: true, from: collected, to: collected, items: 0, gained: {}, materials: [], xpGained: 0, seconds: 0, points: 0 }
   }
+  if (isGathering(job.skill)) return gatherStep(job, rarity, collected, index, xp, xpGain, speed, gather)
   const items = MILESTONES[index] - collected
   const perItem = xpPerAction(job.xp, rarity.multiplier, xpGain)
   const xpGained = items * perItem
@@ -74,11 +87,46 @@ export function tierStep(job, rarity, collected, xp, xpGain, speed) {
     from: collected,
     to: MILESTONES[index],
     items,
+    gained: { [rarity.name]: items },
     attempts,
     materials: materialsFor(job.name, attempts, rarity.name) ?? [],
     xpGained,
     seconds: run.seconds,
     points: milestonePoints(index, rarity.name),
+  }
+}
+
+// Gather until `rarity` reaches its next milestone. Each gather rolls a rarity with the
+// player's luck, so this takes (needed ÷ chance) gathers on average, and the other rarities
+// rise by their own expected share along the way (earning any milestones they pass).
+function gatherStep(job, rarity, collected, index, xp, xpGain, speed, { chances, have }) {
+  const needed = MILESTONES[index] - collected
+  const chance = chances.find((c) => c.name === rarity.name)?.chance ?? 0
+  if (!(chance > 0)) {
+    // Luck so high this rarity never rolls (every roll lands on a better one)
+    return { done: true, impossible: true, from: collected, to: collected, items: 0, gained: {}, materials: [], xpGained: 0, seconds: 0, points: 0 }
+  }
+  const gathers = needed / chance
+  const gained = Object.fromEntries(
+    chances.filter((c) => c.chance > 0).map((c) => [c.name, c.name === rarity.name ? needed : gathers * c.chance]),
+  )
+  const points = Object.entries(gained).reduce(
+    (sum, [name, qty]) => sum + pointsBetween(have(name), have(name) + qty, name),
+    0,
+  )
+  const perItem = xpPerAction(job.xp, expectedMultiplier(chances), xpGain)
+  const run = walk(job, xp, xp + gathers * perItem, perItem, Infinity, speed)
+  return {
+    from: collected,
+    to: MILESTONES[index],
+    items: Math.ceil(gathers - 1e-9),
+    gathers,
+    gained,
+    attempts: Math.ceil(run.attempts - 1e-9),
+    materials: [],
+    xpGained: gathers * perItem,
+    seconds: run.seconds,
+    points,
   }
 }
 

@@ -3,9 +3,10 @@ import IconSelect from '../components/IconSelect.jsx'
 import XpInput from '../components/XpInput.jsx'
 import { num } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
-import { levelForXp } from '../core/xp.js'
+import { levelForXp, oddsMultiplier, rarityChances } from '../core/xp.js'
+import { hasLogItem } from '../game/collection.js'
 import { skillIcon } from '../game/icons.js'
-import { JOBS, SKILL_GROUPS } from '../game/jobs.js'
+import { JOBS, SKILL_GROUPS, isGathering } from '../game/jobs.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CollectionLog from './CollectionLog.jsx'
 import { maximisePoints, runPlan } from './plan.js'
@@ -21,7 +22,7 @@ const NO_STEPS = []
 export default function CollectionPlanner({ profile, setProfile }) {
   const [settings, set] = usePersistentState('collection-planner', DEFAULTS)
   const { skill, logGroups, plans } = settings
-  const { skillXp, speed, collection } = profile
+  const { skillXp, speed, collection, luck, rareFind } = profile
   // XP gain that applies to this skill (stats total minus bonuses for other skill types)
   const xpGain = skillXpGain(profile, skill)
   const currentXp = skillXp[skill] ?? 0
@@ -29,13 +30,17 @@ export default function CollectionPlanner({ profile, setProfile }) {
   const hasCollection = Object.keys(collection).length > 0
 
   const skillSpeed = speed[skill] ?? 0
+  // Gathering rolls each item's rarity with luck instead of picking it
+  const gathering = isGathering(skill)
+  const odds = oddsMultiplier(luck[skill] ?? 0, rareFind)
+  const chances = useMemo(() => rarityChances(odds), [odds])
 
   // Planned tier steps for this skill, in the order they were added
   const steps = plans?.[skill] ?? NO_STEPS
   const setSteps = (next) => set({ plans: { ...plans, [skill]: next } })
   const plan = useMemo(
-    () => runPlan({ steps, startXp: currentXp, xpGain, speed: skillSpeed, collection }),
-    [steps, currentXp, xpGain, skillSpeed, collection],
+    () => runPlan({ steps, startXp: currentXp, xpGain, speed: skillSpeed, collection, chances }),
+    [steps, currentXp, xpGain, skillSpeed, collection, chances],
   )
 
   // Build the plan that earns the most points from what's in storage
@@ -45,7 +50,9 @@ export default function CollectionPlanner({ profile, setProfile }) {
   // Item levels and rarities switched off for the search, per skill
   const searchOff = settings.searchOff?.[skill] ?? {}
   const setSearchOff = (next) => set({ searchOff: { ...settings.searchOff, [skill]: next } })
-  const jobLevels = [...new Set(JOBS.filter((j) => j.skill === skill).map((j) => j.level))].sort(
+  const jobLevels = [
+    ...new Set(JOBS.filter((j) => j.skill === skill && hasLogItem(j)).map((j) => j.level)),
+  ].sort(
     (a, b) => a - b,
   )
   const maximise = () => {
@@ -74,7 +81,9 @@ export default function CollectionPlanner({ profile, setProfile }) {
           label="Skill"
           value={skill}
           onChange={(s) => set({ skill: s })}
-          options={SKILL_GROUPS.Processing.map((s) => ({ value: s, label: s, icon: skillIcon(s) }))}
+          options={Object.entries(SKILL_GROUPS).flatMap(([group, skills]) =>
+            skills.map((s) => ({ value: s, label: s, icon: skillIcon(s), group })),
+          )}
         />
         <label>
           XP gain (%)
@@ -102,6 +111,28 @@ export default function CollectionPlanner({ profile, setProfile }) {
             onChange={(e) => setProfile({ speed: { ...speed, [skill]: num(e.target.value) } })}
           />
         </label>
+        {gathering && (
+          <>
+            <label title="Tool (Uncommon +25%, Rare +75%, Epic +200%, Legendary +500%) + amulet">
+              Luck in {skill} (%)
+              <input
+                type="number"
+                min={0}
+                value={luck[skill] ?? 0}
+                onChange={(e) => setProfile({ luck: { ...luck, [skill]: num(e.target.value) } })}
+              />
+            </label>
+            <label title="Hunter's brew, Vein Blessing, hot skill, town events, lucky shrine, Rare-find mastery">
+              Rare-find (%)
+              <input
+                type="number"
+                min={0}
+                value={rareFind}
+                onChange={(e) => setProfile({ rareFind: num(e.target.value) })}
+              />
+            </label>
+          </>
+        )}
       </section>
 
       <section className="panel xp-pair">
@@ -117,7 +148,8 @@ export default function CollectionPlanner({ profile, setProfile }) {
         startLevel={currentLevel}
         onRemove={(indices) => setSteps(steps.filter((_, j) => !indices.includes(j)))}
         onClear={() => setSteps([])}
-        canMaximise={hasInventory}
+        gathering={gathering}
+        canMaximise={hasInventory && !gathering}
         onMaximise={maximise}
         search={{ levels: jobLevels, playerLevel: currentLevel, off: searchOff, onChange: setSearchOff }}
         note={maximiseNote}
@@ -139,6 +171,7 @@ export default function CollectionPlanner({ profile, setProfile }) {
         plan={plan}
         xpGain={xpGain}
         speed={skillSpeed}
+        chances={chances}
         onPlan={(job, rarity) => setSteps([...steps, { job, rarity }])}
         onUnplan={(job, rarity) =>
           setSteps(steps.filter((s) => s.job !== job || s.rarity !== rarity))

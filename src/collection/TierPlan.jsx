@@ -63,6 +63,7 @@ function groupSteps(rows) {
     g.indices.push(i)
     g.to = s.to
     g.items += s.items
+    g.itemGathers = s.itemGathers
     g.points += s.points
     g.levelAfter = s.levelAfter
     g.done = g.done && s.done
@@ -75,7 +76,17 @@ function groupSteps(rows) {
   return [...groups.values()]
 }
 
-export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaximise, onMaximise, note, search }) {
+export default function TierPlan({
+  plan,
+  startLevel,
+  gathering,
+  onRemove,
+  onClear,
+  canMaximise,
+  onMaximise,
+  note,
+  search,
+}) {
   const { rows } = plan
   const [sort, setSort] = useState(null)
   // Grouped rows in plan order (by each group's first step), or sorted by a column
@@ -85,6 +96,11 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
     shown.sort((a, b) => (value(a) - value(b)) * sort.dir || a.indices[0] - b.indices[0])
   }
   const sortProps = { sort, onSort: setSort }
+  // Gathering: each item's gathers are shared by all its rarities, so count each item once
+  const totalGathers = Object.values(Object.fromEntries(rows.map((s) => [s.item, s.itemGathers ?? 0]))).reduce(
+    (sum, n) => sum + n,
+    0,
+  )
   return (
     <section className="panel">
       <div className="panel-header">
@@ -100,7 +116,9 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
             className="chip"
             disabled={!canMaximise}
             title={
-              canMaximise
+              gathering
+                ? 'Gathering uses no materials, so there is nothing to plan from storage'
+                : canMaximise
                 ? 'Plan the tiers that earn the most points with what is in your storage'
                 : 'Import from the userscript (v1.6 or later) to plan with your storage'
             }
@@ -124,8 +142,8 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
               </strong>
             </div>
             <div className="stat">
-              <span>Items to craft</span>
-              <strong>{fmt(rows.reduce((sum, s) => sum + s.items, 0))}</strong>
+              <span>{gathering ? 'Expected gathers' : 'Items to craft'}</span>
+              <strong>{fmt(gathering ? totalGathers : rows.reduce((sum, s) => sum + s.items, 0))}</strong>
             </div>
             <div className="stat">
               <span>Collection points</span>
@@ -143,7 +161,13 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
                   <th>Item</th>
                   <SortHeader label="Rarity" column="rarity" {...sortProps} />
                   <SortHeader label="Tier" column="tier" {...sortProps} />
-                  <th>Items needed</th>
+                  {gathering ? (
+                    <th title="Gathers of this item needed by the end of this row. All rarities come from the same gathers, so rows overlap instead of adding up.">
+                      Gathers (running total)
+                    </th>
+                  ) : (
+                    <th>Items needed</th>
+                  )}
                   <th>Cost</th>
                   <th>Level after</th>
                   <SortHeader label="Points" column="points" {...sortProps} />
@@ -163,7 +187,7 @@ export default function TierPlan({ plan, startLevel, onRemove, onClear, canMaxim
                     </td>
                     <td className={`rarity-${s.rarity.toLowerCase()}`}>{s.rarity}</td>
                     <td>{s.done ? 'All done' : `${fmt(s.from)} → ${formatMilestone(s.to)}`}</td>
-                    <td>{fmt(s.items)}</td>
+                    <td>{fmt(gathering ? s.itemGathers : s.items)}</td>
                     <td>
                       <Materials list={s.materials} />
                     </td>
