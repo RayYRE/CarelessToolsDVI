@@ -118,7 +118,8 @@ function UserscriptImport({ onImport }) {
         Download userscript opens its install page. Open the game with it on and
         wait for "stats captured" in the bottom-left corner, then import here. Sets skill XP,
         collection log, Rune lectern level, Enhancing mastery and your bonuses (XP gain,
-        rare-find, luck, speed).
+        rare-find, luck, speed). The Careless Tools · Profit userscript works too; with both
+        installed, the newest capture is used.
       </p>
       <div className="button-row">
         <button type="button" onClick={runImport} disabled={busy}>

@@ -36,6 +36,22 @@ import ITEM_IDS from 'virtual:item-ids'
 const SETTINGS_KEY = 'careless-profit-settings'
 const PRICES_KEY = 'careless-profit-prices'
 const STATS_KEY = 'careless-profit-stats'
+// Character snapshot for the Careless Tools site's "Import from userscript", in the same shape the
+// CarelessToolsImport userscript saves
+const SNAPSHOT_KEY = 'careless-profit-snapshot'
+const SNAPSHOT_FIELDS = [
+  'lastTick',
+  'skills',
+  'house',
+  'masteries',
+  'collections',
+  'bank',
+  'pack',
+  'overflow',
+  'homeBank',
+]
+// The game itself; on the Careless Tools site the script only answers import requests
+const ON_GAME = /(^|\.)deepveinidle\.com$/.test(location.hostname)
 const DEFAULT_SETTINGS = {
   price: 'bid', // 'bid' = sell now to the highest buy order, 'ask' = list at the lowest sell order
   cost: 'ask', // materials: 'ask' = buy now from the lowest sell order, 'bid' = place a buy order
@@ -131,6 +147,7 @@ function onFrame(raw) {
     if ((m?.t === 'welcome' || m?.t === 'snapshot') && m.you) {
       state.bank = storageFrom(m.you)
       if (m.you.collections && typeof m.you.collections === 'object') state.collections = m.you.collections
+      saveSnapshotSoon(m.you)
       if (m.you.skills && typeof m.you.skills === 'object') state.skills = m.you.skills
       changed = true
       startPeeking()
@@ -169,8 +186,19 @@ function storageFrom(you) {
   return bank
 }
 
+// The game resends the character often; keep the latest, saved at most once a second
+let snapshotTimer
+function saveSnapshotSoon(you) {
+  const player = Object.fromEntries(SNAPSHOT_FIELDS.filter((k) => k in you).map((k) => [k, you[k]]))
+  clearTimeout(snapshotTimer)
+  snapshotTimer = setTimeout(
+    () => GM_setValue(SNAPSHOT_KEY, { version: 2, capturedAt: Date.now(), player }),
+    1000,
+  )
+}
+
 const NativeSocket = page.WebSocket
-page.WebSocket = new Proxy(NativeSocket, {
+if (ON_GAME) page.WebSocket = new Proxy(NativeSocket, {
   construct(target, args) {
     const socket = Reflect.construct(target, args)
     const url = new URL(String(args[0]), location.href)
@@ -194,11 +222,12 @@ function captureStats() {
   lastStatsHtml = group.outerHTML
   const { settings } = parseStats(lastStatsHtml)
   if (settings.xpGain === undefined) return
-  state.stats = { profile: { luck: {}, ...settings }, capturedAt: Date.now() }
+  // The HTML too, for the Careless Tools site's import
+  state.stats = { profile: { luck: {}, ...settings }, capturedAt: Date.now(), html: lastStatsHtml }
   GM_setValue(STATS_KEY, state.stats)
   render()
 }
-setInterval(captureStats, STATS_CHECK_MS)
+if (ON_GAME) setInterval(captureStats, STATS_CHECK_MS)
 
 let peeked = false
 function startPeeking() {
@@ -664,7 +693,9 @@ function show(el, result) {
 }
 
 // The game redraws its lists often; re-annotate after any change (our own edits settle at once)
-new MutationObserver(render).observe(document, { childList: true, subtree: true, characterData: true })
+if (ON_GAME) {
+  new MutationObserver(render).observe(document, { childList: true, subtree: true, characterData: true })
+}
 
 // ---------------------------------------------------------------- settings pop-out
 
@@ -913,8 +944,48 @@ function mountSettings() {
   document.body.append(root)
 }
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountSettings)
-else mountSettings()
+// ---------------------------------------------------------------- Careless Tools site
 
-load().then(loadPriceFeed)
-setInterval(loadPriceFeed, PRICE_FEED_REFRESH_MS)
+// On the site: hand over the saved character (and bonuses) when its import asks, exactly like the
+// CarelessToolsImport userscript. Events carry JSON strings because the page and the userscript
+// live in different worlds.
+function answerImportRequests() {
+  document.addEventListener('dvi-character-request', async (event) => {
+    if (typeof event.detail !== 'string') return
+    let data
+    try {
+      data = JSON.parse(event.detail)
+    } catch {
+      return
+    }
+    if (
+      data?.source !== 'dvi-simulator' ||
+      !['probe', 'read'].includes(data.action) ||
+      typeof data.id !== 'string' ||
+      data.id.length > 100
+    )
+      return
+    const reply = { source: 'dvi-character-script', id: data.id, version: 'careless-profit-1.0' }
+    try {
+      if (data.action === 'probe') reply.ready = true
+      else {
+        const snapshot = await GM_getValue(SNAPSHOT_KEY, null)
+        const stats = await GM_getValue(STATS_KEY, null)
+        const html = stats?.html ? { html: stats.html, capturedAt: stats.capturedAt } : null
+        reply.snapshot = snapshot || html ? { version: 2, ...snapshot, stats: html } : null
+      }
+    } catch (error) {
+      reply.error = String(error.message || error)
+    }
+    document.dispatchEvent(new CustomEvent('dvi-character-response', { detail: JSON.stringify(reply) }))
+  })
+}
+
+if (ON_GAME) {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountSettings)
+  else mountSettings()
+  load().then(loadPriceFeed)
+  setInterval(loadPriceFeed, PRICE_FEED_REFRESH_MS)
+} else {
+  answerImportRequests()
+}

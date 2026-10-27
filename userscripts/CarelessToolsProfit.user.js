@@ -2,9 +2,11 @@
 // @name         Careless Tools · Profit
 // @namespace    https://carelesstoolsdvi.carelesscapybara.workers.dev/
 // @version      1.0
-// @description  Shows estimated profit next to each job's xp/h in Deep Vein Idle. Read-only: never sends game commands.
+// @description  Shows estimated profit next to each job's xp/h in Deep Vein Idle. Also lets the Careless Tools site import your character. Read-only: never sends game commands.
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
+// @match        https://carelesstoolsdvi.carelesscapybara.workers.dev/*
+// @match        http://localhost:*/*
 // @run-at       document-start
 // @grant        unsafeWindow
 // @grant        GM_getValue
@@ -1087,6 +1089,19 @@
 	var SETTINGS_KEY = "careless-profit-settings";
 	var PRICES_KEY = "careless-profit-prices";
 	var STATS_KEY = "careless-profit-stats";
+	var SNAPSHOT_KEY = "careless-profit-snapshot";
+	var SNAPSHOT_FIELDS = [
+		"lastTick",
+		"skills",
+		"house",
+		"masteries",
+		"collections",
+		"bank",
+		"pack",
+		"overflow",
+		"homeBank"
+	];
+	var ON_GAME = /(^|\.)deepveinidle\.com$/.test(location.hostname);
 	var DEFAULT_SETTINGS = {
 		price: "bid",
 		cost: "ask",
@@ -1179,6 +1194,7 @@
 			if ((m?.t === "welcome" || m?.t === "snapshot") && m.you) {
 				state.bank = storageFrom(m.you);
 				if (m.you.collections && typeof m.you.collections === "object") state.collections = m.you.collections;
+				saveSnapshotSoon(m.you);
 				if (m.you.skills && typeof m.you.skills === "object") state.skills = m.you.skills;
 				changed = true;
 				startPeeking();
@@ -1219,8 +1235,18 @@
 		for (const slot of Array.isArray(you.pack) ? you.pack : []) add(slot?.itemId, slot?.qty);
 		return bank;
 	}
+	var snapshotTimer;
+	function saveSnapshotSoon(you) {
+		const player = Object.fromEntries(SNAPSHOT_FIELDS.filter((k) => k in you).map((k) => [k, you[k]]));
+		clearTimeout(snapshotTimer);
+		snapshotTimer = setTimeout(() => GM_setValue(SNAPSHOT_KEY, {
+			version: 2,
+			capturedAt: Date.now(),
+			player
+		}), 1e3);
+	}
 	var NativeSocket = page.WebSocket;
-	page.WebSocket = new Proxy(NativeSocket, { construct(target, args) {
+	if (ON_GAME) page.WebSocket = new Proxy(NativeSocket, { construct(target, args) {
 		const socket = Reflect.construct(target, args);
 		const url = new URL(String(args[0]), location.href);
 		if (url.host === location.host && url.pathname === "/ws") socket.addEventListener("message", (event) => {
@@ -1240,12 +1266,13 @@
 				luck: {},
 				...settings
 			},
-			capturedAt: Date.now()
+			capturedAt: Date.now(),
+			html: lastStatsHtml
 		};
 		GM_setValue(STATS_KEY, state.stats);
 		render();
 	}
-	setInterval(captureStats, STATS_CHECK_MS);
+	if (ON_GAME) setInterval(captureStats, STATS_CHECK_MS);
 	var peeked = false;
 	function startPeeking() {
 		if (peeked) return;
@@ -1632,7 +1659,7 @@
 		if (span.title !== title) span.title = title;
 		if (span.dataset.tone !== tone) span.dataset.tone = tone;
 	}
-	new MutationObserver(render).observe(document, {
+	if (ON_GAME) new MutationObserver(render).observe(document, {
 		childList: true,
 		subtree: true,
 		characterData: true
@@ -1851,9 +1878,47 @@
 		document.addEventListener("pointerdown", (e) => panel && !root.contains(e.target) && close());
 		document.body.append(root);
 	}
-	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountSettings);
-	else mountSettings();
-	load().then(loadPriceFeed);
-	setInterval(loadPriceFeed, PRICE_FEED_REFRESH_MS);
+	function answerImportRequests() {
+		document.addEventListener("dvi-character-request", async (event) => {
+			if (typeof event.detail !== "string") return;
+			let data;
+			try {
+				data = JSON.parse(event.detail);
+			} catch {
+				return;
+			}
+			if (data?.source !== "dvi-simulator" || !["probe", "read"].includes(data.action) || typeof data.id !== "string" || data.id.length > 100) return;
+			const reply = {
+				source: "dvi-character-script",
+				id: data.id,
+				version: "careless-profit-1.0"
+			};
+			try {
+				if (data.action === "probe") reply.ready = true;
+				else {
+					const snapshot = await GM_getValue(SNAPSHOT_KEY, null);
+					const stats = await GM_getValue(STATS_KEY, null);
+					const html = stats?.html ? {
+						html: stats.html,
+						capturedAt: stats.capturedAt
+					} : null;
+					reply.snapshot = snapshot || html ? {
+						version: 2,
+						...snapshot,
+						stats: html
+					} : null;
+				}
+			} catch (error) {
+				reply.error = String(error.message || error);
+			}
+			document.dispatchEvent(new CustomEvent("dvi-character-response", { detail: JSON.stringify(reply) }));
+		});
+	}
+	if (ON_GAME) {
+		if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountSettings);
+		else mountSettings();
+		load().then(loadPriceFeed);
+		setInterval(loadPriceFeed, PRICE_FEED_REFRESH_MS);
+	} else answerImportRequests();
 	//#endregion
 })();

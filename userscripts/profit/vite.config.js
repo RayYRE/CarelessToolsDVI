@@ -12,9 +12,11 @@ const HEADER = `// ==UserScript==
 // @name         Careless Tools · Profit
 // @namespace    https://carelesstoolsdvi.carelesscapybara.workers.dev/
 // @version      1.0
-// @description  Shows estimated profit next to each job's xp/h in Deep Vein Idle. Read-only: never sends game commands.
+// @description  Shows estimated profit next to each job's xp/h in Deep Vein Idle. Also lets the Careless Tools site import your character. Read-only: never sends game commands.
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
+// @match        https://carelesstoolsdvi.carelesscapybara.workers.dev/*
+// @match        http://localhost:*/*
 // @run-at       document-start
 // @grant        unsafeWindow
 // @grant        GM_getValue
