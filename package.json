@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:profit": "vite build -c userscripts/profit/vite.config.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },

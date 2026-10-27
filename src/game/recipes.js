@@ -116,7 +116,7 @@ export const RECIPES = {
 }
 
 // Materials that only come in Common, whatever the craft's rarity
-const COMMON_ONLY = ['Coal']
+export const COMMON_ONLY = ['Coal']
 
 /**
  * Materials for `attempts` crafts of a job at a rarity: [{ material, quantity, rarity }], or
