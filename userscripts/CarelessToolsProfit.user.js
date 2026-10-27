@@ -208,6 +208,31 @@
 	}
 	//#endregion
 	//#region src/game/collection.js
+	var MILESTONES = [
+		1,
+		10,
+		100,
+		1e3,
+		1e4,
+		1e5,
+		1e6,
+		1e7
+	];
+	var BASE_POINTS = [
+		1,
+		1,
+		3,
+		10,
+		35,
+		120,
+		420,
+		1500
+	];
+	function milestonePoints(index, rarityName) {
+		return BASE_POINTS[index] * (RARITIES.find((r) => r.name === rarityName)?.points ?? 1);
+	}
+	var nextMilestoneIndex = (collected) => MILESTONES.findIndex((m) => m > collected);
+	var formatMilestone = (n) => n >= 1e6 ? `${n / 1e6}M` : n >= 1e3 ? `${n / 1e3}k` : `${n}`;
 	var itemName = (job) => job.skill === "Cooking" ? job.name.replace(/^Cook /, "Cooked ") : job.name;
 	//#endregion
 	//#region src/game/jobs.js
@@ -990,7 +1015,8 @@
 	var DEFAULT_SETTINGS = {
 		price: "bid",
 		tax: true,
-		unit: "hour"
+		unit: "hour",
+		log: true
 	};
 	var IGNORE_MISSING_BELOW = .01;
 	var PRICE_FEED_URL = "/api/market/prices.json";
@@ -1007,6 +1033,7 @@
 		},
 		taxBp: 0,
 		bank: {},
+		collections: {},
 		stats: null
 	};
 	async function load() {
@@ -1058,6 +1085,7 @@
 			if (m?.t === "welcome" && Number.isFinite(m.marketTaxBp)) state.taxBp = m.marketTaxBp;
 			if ((m?.t === "welcome" || m?.t === "snapshot") && m.you) {
 				state.bank = storageFrom(m.you);
+				if (m.you.collections && typeof m.you.collections === "object") state.collections = m.you.collections;
 				changed = true;
 				startPeeking();
 			}
@@ -1324,8 +1352,44 @@
 				let result = null;
 				if (job && profile && row.xpPerHour > 0) result = isGathering(skill) ? gatheringProfit(job, row, profile, skill, level) : craftingProfit(job, row, profile, skill, level, rarity);
 				show(row.el, result);
+				const logItem = !job ? null : isGathering(skill) ? parseTip(row.tip).output?.item : itemName(job);
+				const logRarities = isGathering(skill) ? RARITIES.map((_, i) => i) : [rarity];
+				showLog(row.el, state.settings.log && logItem && normalize(logItem) !== "coins" ? logItem : null, logRarities);
 			}
 		}
+	}
+	function showLog(el, item, rarityIndexes) {
+		let span = el.querySelector(".careless-log");
+		const base = item && itemId(item, 0);
+		if (base === void 0 || base === null) {
+			span?.remove();
+			return;
+		}
+		const parts = rarityIndexes.map((i) => {
+			const r = RARITIES[i];
+			const count = state.collections[base + 1e3 * i] ?? 0;
+			const next = nextMilestoneIndex(count);
+			return {
+				r,
+				text: count < 1e3 ? String(count) : compact.format(count).toLowerCase(),
+				title: next < 0 ? `${r.name}: ${count.toLocaleString()}, every milestone done` : `${r.name}: ${count.toLocaleString()} / ${formatMilestone(MILESTONES[next])} → +${milestonePoints(next, r.name)} pts`
+			};
+		});
+		const key = parts.map((p) => p.text).join("|");
+		if (span?.dataset.key === key) return;
+		if (!span) {
+			span = document.createElement("span");
+			span.className = "careless-log";
+			el.querySelector(".route-meta")?.after(span);
+		}
+		span.dataset.key = key;
+		span.title = [`${item} collection log`, ...parts.map((p) => p.title)].join("\n");
+		span.replaceChildren(...parts.flatMap((p, n) => {
+			const part = document.createElement("span");
+			part.className = `careless-${p.r.name.toLowerCase()}`;
+			part.textContent = p.text;
+			return n ? [" · ", part] : [part];
+		}));
 	}
 	function show(el, result) {
 		let span = el.querySelector(".careless-profit");
@@ -1336,7 +1400,7 @@
 		if (!span) {
 			span = document.createElement("span");
 			span.className = "careless-profit";
-			el.querySelector(".route-meta")?.after(span);
+			el.querySelector(".route-meta")?.prepend(span);
 		}
 		const text = label(result);
 		const title = tooltip(result);
@@ -1366,6 +1430,7 @@
       ${radio("unit", "day", "Per day")}
       ${radio("unit", "action", "Per action")}
     </fieldset>
+    <label><input type="checkbox" name="log"${s.log ? " checked" : ""}> Show collection log progress</label>
     <small>Prices: ${Object.keys(state.prices.items).length} items, ${age(state.prices.capturedAt)}${state.prices.source === "feed" ? " (price feed, updates every 5 min)" : ""}.<br>Open the market for live prices.<br>
       Bonuses: ${age(state.stats?.capturedAt)}.</small>`;
 	}
@@ -1373,9 +1438,17 @@
 		if (document.getElementById("careless-profit-settings")) return;
 		const style = document.createElement("style");
 		style.textContent = `
-    .careless-profit { margin-left: 6px; font-size: 0.85em; opacity: 0.9; }
+    .careless-profit { margin-right: 8px; font-size: 0.9em; }
     .careless-profit[data-tone="up"] { color: #8fd47e; }
     .careless-profit[data-tone="down"] { color: #e0846f; }
+    /* Own full-width line under the xp/h (spans the row whether the job row is a grid or flex) */
+    .careless-log { display: block; grid-column: 1 / -1; flex-basis: 100%; width: 100%; text-align: right;
+      margin-top: 2px; font-size: 0.8em; }
+    /* Rarity colours, as on the Careless Tools site */
+    .careless-log .careless-uncommon { color: #88c977; }
+    .careless-log .careless-rare { color: #769fcc; }
+    .careless-log .careless-epic { color: #b993d4; }
+    .careless-log .careless-legendary { color: #dfb964; }
     #careless-profit-settings { position: fixed; right: 8px; bottom: 8px; z-index: 99998; font: 12px sans-serif; color: #e6d6ae; }
     #careless-profit-settings > button { padding: 4px 8px; border: 1px solid #756440; border-radius: 6px; background: #171c24; color: inherit; cursor: pointer; }
     #careless-profit-settings .panel { position: absolute; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; gap: 8px;

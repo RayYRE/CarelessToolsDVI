@@ -11,7 +11,13 @@
 // the CarelessToolsImport userscript.
 
 import { expectedMultiplier, failChance, oddsMultiplier, rarityChances } from '../../src/core/xp.js'
-import { itemName } from '../../src/game/collection.js'
+import {
+  MILESTONES,
+  formatMilestone,
+  itemName,
+  milestonePoints,
+  nextMilestoneIndex,
+} from '../../src/game/collection.js'
 import { JOBS, isGathering } from '../../src/game/jobs.js'
 import { RARITIES } from '../../src/game/rarities.js'
 import { COMMON_ONLY } from '../../src/game/recipes.js'
@@ -26,6 +32,7 @@ const DEFAULT_SETTINGS = {
   price: 'bid', // 'bid' = sell now to the highest buy order, 'ask' = list at the lowest sell order
   tax: true, // take market tax off every item's value
   unit: 'hour', // 'hour' | 'day' | 'action'
+  log: true, // show collection log progress on each job
 }
 // Outcomes rarer than this per action may lack a price without blanking the row (left out)
 const IGNORE_MISSING_BELOW = 0.01
@@ -42,6 +49,7 @@ const state = {
   prices: { items: {}, capturedAt: null, source: null },
   taxBp: 0, // market tax in basis points, from the welcome message
   bank: {}, // itemId -> qty across bank, pack, overflow, home bank
+  collections: {}, // itemId -> collection log count
   stats: null, // { profile: { xpGain, xpGainSources, luck, rareFind }, capturedAt }
 }
 
@@ -98,6 +106,7 @@ function onFrame(raw) {
     if (m?.t === 'welcome' && Number.isFinite(m.marketTaxBp)) state.taxBp = m.marketTaxBp
     if ((m?.t === 'welcome' || m?.t === 'snapshot') && m.you) {
       state.bank = storageFrom(m.you)
+      if (m.you.collections && typeof m.you.collections === 'object') state.collections = m.you.collections
       changed = true
       startPeeking()
     }
@@ -387,8 +396,58 @@ function annotate() {
           : craftingProfit(job, row, profile, skill, level, rarity)
       }
       show(row.el, result)
+      // Collection log: what a gathering job collects (from its tooltip), or the crafted item
+      const logItem = !job
+        ? null
+        : isGathering(skill)
+          ? parseTip(row.tip).output?.item
+          : itemName(job)
+      const logRarities = isGathering(skill) ? RARITIES.map((_, i) => i) : [rarity]
+      showLog(row.el, state.settings.log && logItem && normalize(logItem) !== 'coins' ? logItem : null, logRarities)
     }
   }
+}
+
+// Collection log counts for an item at some rarities: "10.6k · 5k · 540 · 23 · 1", each in its
+// rarity colour (our own classes: the game's rarity-* styles only apply inside its own widgets);
+// hover for exact counts and the next milestone's points
+function showLog(el, item, rarityIndexes) {
+  let span = el.querySelector('.careless-log')
+  const base = item && itemId(item, 0)
+  if (base === undefined || base === null) {
+    span?.remove()
+    return
+  }
+  const parts = rarityIndexes.map((i) => {
+    const r = RARITIES[i]
+    const count = state.collections[base + 1000 * i] ?? 0
+    const next = nextMilestoneIndex(count)
+    return {
+      r,
+      text: count < 1000 ? String(count) : compact.format(count).toLowerCase(),
+      title:
+        next < 0
+          ? `${r.name}: ${count.toLocaleString()}, every milestone done`
+          : `${r.name}: ${count.toLocaleString()} / ${formatMilestone(MILESTONES[next])} → +${milestonePoints(next, r.name)} pts`,
+    }
+  })
+  const key = parts.map((p) => p.text).join('|')
+  if (span?.dataset.key === key) return
+  if (!span) {
+    span = document.createElement('span')
+    span.className = 'careless-log'
+    el.querySelector('.route-meta')?.after(span)
+  }
+  span.dataset.key = key
+  span.title = [`${item} collection log`, ...parts.map((p) => p.title)].join('\n')
+  span.replaceChildren(
+    ...parts.flatMap((p, n) => {
+      const part = document.createElement('span')
+      part.className = `careless-${p.r.name.toLowerCase()}`
+      part.textContent = p.text
+      return n ? [' · ', part] : [part]
+    }),
+  )
 }
 
 function show(el, result) {
@@ -400,7 +459,8 @@ function show(el, result) {
   if (!span) {
     span = document.createElement('span')
     span.className = 'careless-profit'
-    el.querySelector('.route-meta')?.after(span)
+    // Inside the xp/h text, to its left (the xp/h is still read correctly: "+1.2M/h55,360 xp/h")
+    el.querySelector('.route-meta')?.prepend(span)
   }
   const text = label(result)
   const title = tooltip(result)
@@ -432,6 +492,7 @@ function settingsPanel() {
       ${radio('unit', 'day', 'Per day')}
       ${radio('unit', 'action', 'Per action')}
     </fieldset>
+    <label><input type="checkbox" name="log"${s.log ? ' checked' : ''}> Show collection log progress</label>
     <small>Prices: ${Object.keys(state.prices.items).length} items, ${age(state.prices.capturedAt)}${
       state.prices.source === 'feed' ? ' (price feed, updates every 5 min)' : ''
     }.<br>Open the market for live prices.<br>
@@ -442,9 +503,17 @@ function mountSettings() {
   if (document.getElementById('careless-profit-settings')) return
   const style = document.createElement('style')
   style.textContent = `
-    .careless-profit { margin-left: 6px; font-size: 0.85em; opacity: 0.9; }
+    .careless-profit { margin-right: 8px; font-size: 0.9em; }
     .careless-profit[data-tone="up"] { color: #8fd47e; }
     .careless-profit[data-tone="down"] { color: #e0846f; }
+    /* Own full-width line under the xp/h (spans the row whether the job row is a grid or flex) */
+    .careless-log { display: block; grid-column: 1 / -1; flex-basis: 100%; width: 100%; text-align: right;
+      margin-top: 2px; font-size: 0.8em; }
+    /* Rarity colours, as on the Careless Tools site */
+    .careless-log .careless-uncommon { color: #88c977; }
+    .careless-log .careless-rare { color: #769fcc; }
+    .careless-log .careless-epic { color: #b993d4; }
+    .careless-log .careless-legendary { color: #dfb964; }
     #careless-profit-settings { position: fixed; right: 8px; bottom: 8px; z-index: 99998; font: 12px sans-serif; color: #e6d6ae; }
     #careless-profit-settings > button { padding: 4px 8px; border: 1px solid #756440; border-radius: 6px; background: #171c24; color: inherit; cursor: pointer; }
     #careless-profit-settings .panel { position: absolute; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; gap: 8px;
