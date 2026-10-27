@@ -50,6 +50,7 @@ const state = {
   taxBp: 0, // market tax in basis points, from the welcome message
   bank: {}, // itemId -> qty across bank, pack, overflow, home bank
   collections: {}, // itemId -> collection log count
+  feedIds: {}, // normalised item name -> base item ID, from the price feed (items our list lacks)
   stats: null, // { profile: { xpGain, xpGainSources, luck, rareFind }, capturedAt }
 }
 
@@ -72,11 +73,23 @@ function savePricesSoon() {
 // prices win). Only replaces what's saved when the feed is newer.
 let liveMarketSeen = false
 async function loadPriceFeed() {
-  if (liveMarketSeen) return
+  // Once the market's live prices are in, the feed is only needed once (for item names)
+  if (liveMarketSeen && Object.keys(state.feedIds).length) return
   try {
     const response = await fetch(PRICE_FEED_URL, { cache: 'no-store' })
     if (!response.ok) throw Error(`HTTP ${response.status}`)
     const feed = await response.json()
+    // The feed names every item: learn IDs for items our own list doesn't have
+    let learned = 0
+    for (const [id, item] of Object.entries(feed.items ?? {})) {
+      if (item?.rarity !== 'Normal' || item.plus || !item.name) continue
+      const key = normalize(item.name)
+      if (ITEM_IDS[key] === undefined && state.feedIds[key] === undefined) {
+        state.feedIds[key] = Number(id)
+        learned++
+      }
+    }
+    if (learned) render()
     const at = Date.parse(feed.generatedAt) || Date.now()
     if (liveMarketSeen || (state.prices.capturedAt ?? 0) >= at) return
     const items = {}
@@ -207,7 +220,7 @@ function peekStats() {
 
 const normalize = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, '')
 const itemId = (name, rarityIndex) => {
-  const base = ITEM_IDS[normalize(name)]
+  const base = ITEM_IDS[normalize(name)] ?? state.feedIds[normalize(name)]
   return base === undefined ? undefined : base + 1000 * rarityIndex
 }
 
@@ -247,7 +260,8 @@ const num = (text) => Number(String(text).replace(/,/g, ''))
 // "Each chop: 1× Maple logs · 18 xp|Bitterroot seed: 1 in 260|Pet, Acorn squirrel: 1 in 3,000,000"
 function parseTip(lines) {
   const parts = (lines ?? '').split('|')
-  const main = parts[0]?.match(/^Each [^:]+:\s*([\d,]+)×\s*(.+?)\s*·/)
+  // "Each chop: 1× Maple logs · 18 xp", and on some jobs just "Each chop: 1× Maple logs"
+  const main = parts[0]?.match(/^Each [^:]+:\s*([\d,]+)×\s*(.+?)\s*(?:·|$)/)
   const drops = parts
     .slice(1)
     .map((p) => p.match(/^(.+?):\s*1 in ([\d,]+)$/))
@@ -397,13 +411,14 @@ function annotate() {
       }
       show(row.el, result)
       // Collection log: what a gathering job collects (from its tooltip), or the crafted item
-      const logItem = !job
-        ? null
-        : isGathering(skill)
-          ? parseTip(row.tip).output?.item
-          : itemName(job)
-      const logRarities = isGathering(skill) ? RARITIES.map((_, i) => i) : [rarity]
-      showLog(row.el, state.settings.log && logItem && normalize(logItem) !== 'coins' ? logItem : null, logRarities)
+      // Straight from the game's row, so it works for jobs our list doesn't know too
+      const logItem = isGathering(skill)
+        ? parseTip(row.tip).output?.item
+        : job
+          ? itemName(job)
+          : row.name
+      const allRarities = RARITIES.map((_, i) => i)
+      showLog(row.el, state.settings.log && logItem && normalize(logItem) !== 'coins' ? logItem : null, allRarities)
     }
   }
 }

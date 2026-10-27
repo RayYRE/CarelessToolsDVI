@@ -1034,6 +1034,7 @@
 		taxBp: 0,
 		bank: {},
 		collections: {},
+		feedIds: {},
 		stats: null
 	};
 	async function load() {
@@ -1052,11 +1053,21 @@
 	}
 	var liveMarketSeen = false;
 	async function loadPriceFeed() {
-		if (liveMarketSeen) return;
+		if (liveMarketSeen && Object.keys(state.feedIds).length) return;
 		try {
 			const response = await fetch(PRICE_FEED_URL, { cache: "no-store" });
 			if (!response.ok) throw Error(`HTTP ${response.status}`);
 			const feed = await response.json();
+			let learned = 0;
+			for (const [id, item] of Object.entries(feed.items ?? {})) {
+				if (item?.rarity !== "Normal" || item.plus || !item.name) continue;
+				const key = normalize(item.name);
+				if (_item_ids_default[key] === void 0 && state.feedIds[key] === void 0) {
+					state.feedIds[key] = Number(id);
+					learned++;
+				}
+			}
+			if (learned) render();
 			const at = Date.parse(feed.generatedAt) || Date.now();
 			if (liveMarketSeen || (state.prices.capturedAt ?? 0) >= at) return;
 			const items = {};
@@ -1180,7 +1191,7 @@
 	}
 	var normalize = (name) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
 	var itemId = (name, rarityIndex) => {
-		const base = _item_ids_default[normalize(name)];
+		const base = _item_ids_default[normalize(name)] ?? state.feedIds[normalize(name)];
 		return base === void 0 ? void 0 : base + 1e3 * rarityIndex;
 	};
 	function value(name, rarityIndex) {
@@ -1210,7 +1221,7 @@
 	var num = (text) => Number(String(text).replace(/,/g, ""));
 	function parseTip(lines) {
 		const parts = (lines ?? "").split("|");
-		const main = parts[0]?.match(/^Each [^:]+:\s*([\d,]+)×\s*(.+?)\s*·/);
+		const main = parts[0]?.match(/^Each [^:]+:\s*([\d,]+)×\s*(.+?)\s*(?:·|$)/);
 		const drops = parts.slice(1).map((p) => p.match(/^(.+?):\s*1 in ([\d,]+)$/)).filter((m) => m && !m[1].startsWith("Pet")).map((m) => ({
 			item: m[1].trim(),
 			oneIn: num(m[2])
@@ -1352,9 +1363,9 @@
 				let result = null;
 				if (job && profile && row.xpPerHour > 0) result = isGathering(skill) ? gatheringProfit(job, row, profile, skill, level) : craftingProfit(job, row, profile, skill, level, rarity);
 				show(row.el, result);
-				const logItem = !job ? null : isGathering(skill) ? parseTip(row.tip).output?.item : itemName(job);
-				const logRarities = isGathering(skill) ? RARITIES.map((_, i) => i) : [rarity];
-				showLog(row.el, state.settings.log && logItem && normalize(logItem) !== "coins" ? logItem : null, logRarities);
+				const logItem = isGathering(skill) ? parseTip(row.tip).output?.item : job ? itemName(job) : row.name;
+				const allRarities = RARITIES.map((_, i) => i);
+				showLog(row.el, state.settings.log && logItem && normalize(logItem) !== "coins" ? logItem : null, allRarities);
 			}
 		}
 	}
