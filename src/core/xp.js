@@ -31,9 +31,16 @@ export function oddsMultiplier(luckPercent, rareFindPercent) {
   return (1 + luckPercent / 100) * (1 + rareFindPercent / 100)
 }
 
-// Skill speed bonus: +X% speed means X% more actions per second
-export function actionTime(baseSeconds, speedPercent) {
-  return baseSeconds / (1 + speedPercent / 100)
+const TICK_SECONDS = 0.6
+const SPEED_PER_LEVEL_ABOVE = 0.005 // +0.5% speed per level above the job's requirement
+
+// Average seconds per action. Each tick is one attempt that succeeds with chance
+// speed / base ticks (at most 100%), so an action takes base / speed but never under a tick.
+// Speed = (1 + stats-screen speed) × level bonus; the stats screen already multiplies tool,
+// house and mastery together, but leaves out the level bonus (which applies to every skill).
+export function actionTime(baseSeconds, speedPercent, levelsAbove = 0) {
+  const speed = (1 + speedPercent / 100) * (1 + SPEED_PER_LEVEL_ABOVE * Math.max(0, levelsAbove))
+  return Math.max(TICK_SECONDS, baseSeconds / speed)
 }
 
 // Chance per action of each exact rarity. Base odds are "this tier or better",
@@ -57,13 +64,15 @@ export function failChance(job, level) {
   return ((f.chance / 100) * (f.never - level)) / (f.never - job.level)
 }
 
-// Expected attempts to earn XP from startXp up to targetXp, recalculating the
-// fail chance at every level-up. Stops early after maxAttempts if given.
-export function walk(job, startXp, targetXp, xpPerSuccess, maxAttempts = Infinity) {
+// Expected attempts to earn XP from startXp up to targetXp, recalculating the fail chance
+// and the level speed bonus at every level-up. Stops early after maxAttempts if given.
+// `speed` is the stats-screen speed (%); seconds include stuns after failed attempts.
+export function walk(job, startXp, targetXp, xpPerSuccess, maxAttempts = Infinity, speed = 0) {
   let xp = startXp
   let attempts = 0
   let failed = 0
-  if (xpPerSuccess <= 0) return { xp, attempts, failed }
+  let seconds = 0
+  if (xpPerSuccess <= 0) return { xp, attempts, failed, seconds }
   while (xp < targetXp && attempts < maxAttempts) {
     const level = levelForXp(xp)
     const success = 1 - failChance(job, level)
@@ -73,48 +82,52 @@ export function walk(job, startXp, targetXp, xpPerSuccess, maxAttempts = Infinit
     const n = Math.min(toLevelEnd, maxAttempts - attempts)
     attempts += n
     failed += n * (1 - success)
+    seconds +=
+      n * actionTime(job.time, speed, level - job.level) + n * (1 - success) * (job.fail?.stun ?? 0)
     // Snap to the boundary to avoid floating-point creep
     xp = n === toLevelEnd ? levelEnd : xp + n * xpPerAttempt
   }
-  return { xp, attempts, failed }
+  return { xp, attempts, failed, seconds }
 }
 
 const roundUp = (n) => Math.max(0, Math.ceil(n - 1e-9))
 
-function finishPlan(job, startXp, attempts, failed, endXp, extra = {}) {
-  const actions = roundUp(attempts)
+function finishPlan(startXp, attempts, failed, endXp, seconds, extra = {}) {
   return {
     ...extra,
-    actions,
+    actions: roundUp(attempts),
     failed,
     xpGained: Math.max(0, endXp - startXp),
-    seconds: actions * job.time + failed * (job.fail?.stun ?? 0),
+    seconds,
   }
 }
 
 // Gathering: every attempt earns the same average XP (luck already folded into xpPerSuccess)
-export function gatheringPlan(job, currentXp, targetXp, xpPerSuccess) {
-  const w = walk(job, currentXp, targetXp, xpPerSuccess)
-  return finishPlan(job, currentXp, w.attempts, w.failed, w.xp)
+export function gatheringPlan(job, currentXp, targetXp, xpPerSuccess, speed = 0) {
+  const w = walk(job, currentXp, targetXp, xpPerSuccess, Infinity, speed)
+  return finishPlan(currentXp, w.attempts, w.failed, w.xp, w.seconds)
 }
 
 // Processing: fixed numbers of rarer attempts first, then Common attempts for the rest
-export function fixedCountPlan(job, currentXp, targetXp, xpGainPercent, counts) {
+export function fixedCountPlan(job, currentXp, targetXp, xpGainPercent, counts, speed = 0) {
   let xp = currentXp
   let fixedActions = 0
   let failed = 0
+  let seconds = 0
   for (const r of RARITIES.slice(1)) {
     const n = Math.max(0, Math.floor(counts[r.name] || 0))
     if (!n) continue
-    const w = walk(job, xp, Infinity, xpPerAction(job.xp, r.multiplier, xpGainPercent), n)
+    const w = walk(job, xp, Infinity, xpPerAction(job.xp, r.multiplier, xpGainPercent), n, speed)
     xp = w.xp
     failed += w.failed
+    seconds += w.seconds
     fixedActions += n
   }
   const fixedXp = xp - currentXp
-  const w = walk(job, xp, targetXp, xpPerAction(job.xp, 1, xpGainPercent))
+  const w = walk(job, xp, targetXp, xpPerAction(job.xp, 1, xpGainPercent), Infinity, speed)
   const commonActions = roundUp(w.attempts)
-  return finishPlan(job, currentXp, fixedActions + commonActions, failed + w.failed, Math.max(xp, w.xp), {
+  const endXp = Math.max(xp, w.xp)
+  return finishPlan(currentXp, fixedActions + commonActions, failed + w.failed, endXp, seconds + w.seconds, {
     fixedActions,
     fixedXp,
     commonActions,

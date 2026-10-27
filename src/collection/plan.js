@@ -1,4 +1,4 @@
-import { actionTime, levelForXp, walk, xpPerAction } from '../core/xp.js'
+import { levelForXp, walk, xpPerAction } from '../core/xp.js'
 import { MILESTONES, itemName, milestonePoints, nextMilestoneIndex } from '../game/collection.js'
 import { JOBS } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
@@ -68,7 +68,7 @@ export function tierStep(job, rarity, collected, xp, xpGain, speed) {
   const perItem = xpPerAction(job.xp, rarity.multiplier, xpGain)
   const xpGained = items * perItem
   // Failed attempts (burns) don't count toward the log, so walk the extra attempts
-  const run = walk(job, xp, xp + xpGained, perItem)
+  const run = walk(job, xp, xp + xpGained, perItem, Infinity, speed)
   const attempts = Math.ceil(run.attempts - 1e-9)
   return {
     from: collected,
@@ -77,7 +77,7 @@ export function tierStep(job, rarity, collected, xp, xpGain, speed) {
     attempts,
     materials: materialsFor(job.name, attempts, rarity.name) ?? [],
     xpGained,
-    seconds: run.attempts * actionTime(job.time, speed) + run.failed * (job.fail?.stun ?? 0),
+    seconds: run.seconds,
     points: milestonePoints(index, rarity.name),
   }
 }

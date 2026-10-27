@@ -59,11 +59,12 @@ export default function XpCalculator({ profile, setProfile }) {
   // Average rarity XP multiplier for a gathering job; stalls get no rarity bonus
   const multiplierFor = (j) => (j.stall ? 1 : avgMultiplier)
 
-  const rows = skillJobs.map((baseJob) => {
-    const j = { ...baseJob, time: actionTime(baseJob.time, skillSpeed) }
+  const rows = skillJobs.map((j) => {
+    // Seconds per action right now; the plans recalculate it as the level (and its bonus) rises
+    const time = actionTime(j.time, skillSpeed, currentLevel - j.level)
     const plan = gathering
-      ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, multiplierFor(j), xpGain))
-      : fixedCountPlan(j, currentXp, targetXp, xpGain, counts)
+      ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, multiplierFor(j), xpGain), skillSpeed)
+      : fixedCountPlan(j, currentXp, targetXp, xpGain, counts, skillSpeed)
     // Averages per attempt over the whole grind, failures and stuns included.
     // With nothing left to earn, fall back to the rate at the current level.
     const fail = failChance(j, currentLevel)
@@ -72,10 +73,12 @@ export default function XpCalculator({ profile, setProfile }) {
       : xpPerAction(j.xp, gathering ? multiplierFor(j) : 1, xpGain) * (1 - fail)
     const xpPerHour = plan.seconds
       ? (plan.xpGained / plan.seconds) * 3600
-      : (perAction / (j.time + fail * (j.fail?.stun ?? 0))) * 3600
+      : (perAction / (time + fail * (j.fail?.stun ?? 0))) * 3600
     // Gathering worst case: no luck at all, every drop Common (×1)
-    const maxPlan = gathering ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, 1, xpGain)) : null
-    return { ...j, plan, maxPlan, fail, perAction, xpPerHour, actions: plan.actions, seconds: plan.seconds }
+    const maxPlan = gathering
+      ? gatheringPlan(j, currentXp, targetXp, xpPerAction(j.xp, 1, xpGain), skillSpeed)
+      : null
+    return { ...j, time, plan, maxPlan, fail, perAction, xpPerHour, actions: plan.actions, seconds: plan.seconds }
   })
   const selected = rows.find((r) => r.id === job.id)
   const gain = (1 + xpGain / 100).toFixed(2)
@@ -210,7 +213,10 @@ export default function XpCalculator({ profile, setProfile }) {
           <strong>{selected.perAction.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
           <small className="hint-inline">
             {+selected.time.toFixed(2)}s / action
-            {skillSpeed ? ` (base ${job.time}s, +${skillSpeed}% speed)` : ''}
+            {selected.time !== job.time &&
+              ` (base ${job.time}s${skillSpeed ? `, +${skillSpeed}% speed` : ''}${
+                currentLevel > job.level ? `, +${((currentLevel - job.level) * 0.5).toFixed(1)}% level` : ''
+              })`}
           </small>
         </div>
         {job.level > currentLevel && (

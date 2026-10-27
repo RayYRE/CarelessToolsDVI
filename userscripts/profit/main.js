@@ -6,8 +6,8 @@
 //   actions/h  = the game's xp/h ÷ XP per action (our job data × your XP gain [× avg rarity])
 //   profit/h   = actions/h × (value of what an action gives − value of what it uses)
 //
-// Prices come from the market's `marketStock` summary (best buy/sell order per item ID),
-// remembered between sessions. Your bonuses come from the stats window, read the same way as
+// Prices come from the market's `marketStock` summary (best buy/sell order per item ID) when the
+// market is opened, and until then from the game's public price feed; remembered between sessions. Your bonuses come from the stats window, read the same way as
 // the CarelessToolsImport userscript.
 
 import { expectedMultiplier, failChance, oddsMultiplier, rarityChances } from '../../src/core/xp.js'
@@ -29,13 +29,17 @@ const DEFAULT_SETTINGS = {
 }
 // Outcomes rarer than this per action may lack a price without blanking the row (left out)
 const IGNORE_MISSING_BELOW = 0.01
+// Public price feed (refreshed by the game every 5 minutes), used until the market is opened
+const PRICE_FEED_URL = '/api/market/prices.json'
+const PRICE_FEED_REFRESH_MS = 5 * 60 * 1000
 const STATS_CHECK_MS = 5000
 const STATS_PEEK_MS = 3000
 
 const page = unsafeWindow
 const state = {
   settings: { ...DEFAULT_SETTINGS },
-  prices: { items: {}, capturedAt: null }, // items: { itemId: [ask, bid] }
+  // items: { itemId: [ask, bid] }; source: 'market' (opened in game) or 'feed' (price feed)
+  prices: { items: {}, capturedAt: null, source: null },
   taxBp: 0, // market tax in basis points, from the welcome message
   bank: {}, // itemId -> qty across bank, pack, overflow, home bank
   stats: null, // { profile: { xpGain, xpGainSources, luck, rareFind }, capturedAt }
@@ -54,6 +58,29 @@ let pricesSaveTimer
 function savePricesSoon() {
   clearTimeout(pricesSaveTimer)
   pricesSaveTimer = setTimeout(() => GM_setValue(PRICES_KEY, state.prices), 1000)
+}
+
+// Prices from the public feed, while the market hasn't been opened this session (its live
+// prices win). Only replaces what's saved when the feed is newer.
+let liveMarketSeen = false
+async function loadPriceFeed() {
+  if (liveMarketSeen) return
+  try {
+    const response = await fetch(PRICE_FEED_URL, { cache: 'no-store' })
+    if (!response.ok) throw Error(`HTTP ${response.status}`)
+    const feed = await response.json()
+    const at = Date.parse(feed.generatedAt) || Date.now()
+    if (liveMarketSeen || (state.prices.capturedAt ?? 0) >= at) return
+    const items = {}
+    for (const [id, item] of Object.entries(feed.items ?? {})) {
+      items[id] = [item?.lowestSell || 0, item?.highestBuy || 0]
+    }
+    state.prices = { items, capturedAt: at, source: 'feed' }
+    savePricesSoon()
+    render()
+  } catch (error) {
+    console.warn('[Careless Tools profit] price feed unavailable:', error.message)
+  }
 }
 
 // ---------------------------------------------------------------- game messages
@@ -78,7 +105,8 @@ function onFrame(raw) {
     if (m?.t === 'marketStock' && Array.isArray(m.summary)) {
       const items = {}
       for (const [id, ask, bid] of m.summary) items[id] = [ask || 0, bid || 0]
-      state.prices = { items, capturedAt: Date.now() }
+      state.prices = { items, capturedAt: Date.now(), source: 'market' }
+      liveMarketSeen = true
       savePricesSoon()
       changed = true
     }
@@ -317,7 +345,10 @@ function tooltip(result) {
     `${compact.format(result.perHour)} coins/h · ${compact.format(result.perHour * 24)} coins/day`,
   ]
   if (result.missing.length) lines.push(`No price, left out: ${result.missing.join(', ')}`)
-  if (state.prices.capturedAt) lines.push(`Prices from ${new Date(state.prices.capturedAt).toLocaleString()}`)
+  if (state.prices.capturedAt) {
+    const from = state.prices.source === 'feed' ? ' (price feed)' : ''
+    lines.push(`Prices from ${new Date(state.prices.capturedAt).toLocaleString()}${from}`)
+  }
   return lines.join('\n')
 }
 
@@ -401,8 +432,9 @@ function settingsPanel() {
       ${radio('unit', 'day', 'Per day')}
       ${radio('unit', 'action', 'Per action')}
     </fieldset>
-    <small>Prices: ${Object.keys(state.prices.items).length} items, ${age(state.prices.capturedAt)}.
-      Open the market to refresh them.<br>
+    <small>Prices: ${Object.keys(state.prices.items).length} items, ${age(state.prices.capturedAt)}${
+      state.prices.source === 'feed' ? ' (price feed, updates every 5 min)' : ''
+    }.<br>Open the market for live prices.<br>
       Bonuses: ${age(state.stats?.capturedAt)}.</small>`
 }
 
@@ -451,4 +483,5 @@ function mountSettings() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountSettings)
 else mountSettings()
 
-load()
+load().then(loadPriceFeed)
+setInterval(loadPriceFeed, PRICE_FEED_REFRESH_MS)

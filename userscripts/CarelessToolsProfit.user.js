@@ -993,6 +993,8 @@
 		unit: "hour"
 	};
 	var IGNORE_MISSING_BELOW = .01;
+	var PRICE_FEED_URL = "/api/market/prices.json";
+	var PRICE_FEED_REFRESH_MS = 3e5;
 	var STATS_CHECK_MS = 5e3;
 	var STATS_PEEK_MS = 3e3;
 	var page = unsafeWindow;
@@ -1000,7 +1002,8 @@
 		settings: { ...DEFAULT_SETTINGS },
 		prices: {
 			items: {},
-			capturedAt: null
+			capturedAt: null,
+			source: null
 		},
 		taxBp: 0,
 		bank: {},
@@ -1019,6 +1022,28 @@
 	function savePricesSoon() {
 		clearTimeout(pricesSaveTimer);
 		pricesSaveTimer = setTimeout(() => GM_setValue(PRICES_KEY, state.prices), 1e3);
+	}
+	var liveMarketSeen = false;
+	async function loadPriceFeed() {
+		if (liveMarketSeen) return;
+		try {
+			const response = await fetch(PRICE_FEED_URL, { cache: "no-store" });
+			if (!response.ok) throw Error(`HTTP ${response.status}`);
+			const feed = await response.json();
+			const at = Date.parse(feed.generatedAt) || Date.now();
+			if (liveMarketSeen || (state.prices.capturedAt ?? 0) >= at) return;
+			const items = {};
+			for (const [id, item] of Object.entries(feed.items ?? {})) items[id] = [item?.lowestSell || 0, item?.highestBuy || 0];
+			state.prices = {
+				items,
+				capturedAt: at,
+				source: "feed"
+			};
+			savePricesSoon();
+			render();
+		} catch (error) {
+			console.warn("[Careless Tools profit] price feed unavailable:", error.message);
+		}
 	}
 	function onFrame(raw) {
 		let f;
@@ -1041,8 +1066,10 @@
 				for (const [id, ask, bid] of m.summary) items[id] = [ask || 0, bid || 0];
 				state.prices = {
 					items,
-					capturedAt: Date.now()
+					capturedAt: Date.now(),
+					source: "market"
 				};
+				liveMarketSeen = true;
 				savePricesSoon();
 				changed = true;
 			}
@@ -1262,7 +1289,10 @@
 			`${compact.format(result.perHour)} coins/h · ${compact.format(result.perHour * 24)} coins/day`
 		];
 		if (result.missing.length) lines.push(`No price, left out: ${result.missing.join(", ")}`);
-		if (state.prices.capturedAt) lines.push(`Prices from ${new Date(state.prices.capturedAt).toLocaleString()}`);
+		if (state.prices.capturedAt) {
+			const from = state.prices.source === "feed" ? " (price feed)" : "";
+			lines.push(`Prices from ${new Date(state.prices.capturedAt).toLocaleString()}${from}`);
+		}
 		return lines.join("\n");
 	}
 	var renderQueued = false;
@@ -1336,8 +1366,7 @@
       ${radio("unit", "day", "Per day")}
       ${radio("unit", "action", "Per action")}
     </fieldset>
-    <small>Prices: ${Object.keys(state.prices.items).length} items, ${age(state.prices.capturedAt)}.
-      Open the market to refresh them.<br>
+    <small>Prices: ${Object.keys(state.prices.items).length} items, ${age(state.prices.capturedAt)}${state.prices.source === "feed" ? " (price feed, updates every 5 min)" : ""}.<br>Open the market for live prices.<br>
       Bonuses: ${age(state.stats?.capturedAt)}.</small>`;
 	}
 	function mountSettings() {
@@ -1385,6 +1414,7 @@
 	}
 	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountSettings);
 	else mountSettings();
-	load();
+	load().then(loadPriceFeed);
+	setInterval(loadPriceFeed, PRICE_FEED_REFRESH_MS);
 	//#endregion
 })();
