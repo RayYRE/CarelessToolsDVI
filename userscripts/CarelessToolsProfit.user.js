@@ -1089,6 +1089,7 @@
 	var STATS_KEY = "careless-profit-stats";
 	var DEFAULT_SETTINGS = {
 		price: "bid",
+		cost: "ask",
 		tax: true,
 		unit: "hour",
 		log: true
@@ -1285,12 +1286,21 @@
 		if (!price) return null;
 		return state.settings.tax ? price * (1 - state.taxBp / 1e4) : price;
 	}
+	function cost(name, rarityIndex) {
+		return state.prices.items[itemId(name, rarityIndex)]?.[state.settings.cost === "bid" ? 1 : 0] || null;
+	}
 	function rolledValue(name, chances, perAction = 1) {
 		let total = 0;
 		const missing = [];
+		const parts = [];
 		for (const [i, r] of chances.entries()) {
 			if (r.chance <= 0) continue;
 			const v = value(name, i);
+			parts.push({
+				rarity: r.name,
+				price: v,
+				chance: r.chance
+			});
 			if (v === null) {
 				if (r.chance * perAction >= IGNORE_MISSING_BELOW) return null;
 				missing.push(r.name);
@@ -1300,9 +1310,27 @@
 		}
 		return {
 			value: total,
-			missing
+			missing,
+			parts
 		};
 	}
+	var amount = (n) => {
+		const a = Math.abs(n);
+		if (a >= 100) return Math.round(n).toLocaleString();
+		if (a >= 1) return String(+n.toFixed(2));
+		if (a >= .001 || a === 0) return String(+n.toFixed(4));
+		return n.toPrecision(2);
+	};
+	function breakdown(name, heading, rolled, perAction) {
+		const lines = [heading];
+		for (const p of rolled.parts) {
+			const count = p.chance * perAction;
+			lines.push(p.price === null ? `  ${p.rarity}: no price × ${amount(count)} (left out)` : `  ${p.rarity}: ${amount(p.price)} × ${amount(count)} = ${amount(p.price * count)}`);
+		}
+		return lines;
+	}
+	var priceNote = () => `${state.settings.price === "ask" ? "List it (lowest sell order)" : "Sell now (highest buy order)"}${state.settings.tax ? `, after ${state.taxBp / 100}% tax` : ""}`;
+	var costNote = () => state.settings.cost === "bid" ? "Buy order (highest buy order)" : "Buy now (lowest sell order)";
 	var num = (text) => Number(String(text).replace(/,/g, ""));
 	function parseTip(lines) {
 		const parts = (lines ?? "").split("|");
@@ -1361,20 +1389,27 @@
 		const successes = row.xpPerHour / xpPerSuccess;
 		const attempts = successes / (1 - failChance(job, level));
 		const missing = [];
-		const main = coins ? {
-			value: 1,
-			missing: []
-		} : rolledValue(output.item, chances);
-		if (!main) return null;
-		missing.push(...main.missing.map((r) => `${r} ${output.item}`));
-		let perSuccess = output.qty * main.value;
+		const lines = [];
+		const per = job.fail ? "per successful action" : "per action";
+		let perSuccess;
+		if (coins) {
+			perSuccess = output.qty;
+			lines.push(`${output.qty}× Coins ${per} = ${amount(output.qty)}`);
+		} else {
+			const main = rolledValue(output.item, chances);
+			if (!main) return null;
+			missing.push(...main.missing.map((r) => `${r} ${output.item}`));
+			perSuccess = output.qty * main.value;
+			lines.push(...breakdown(output.item, `${output.item} (${output.qty} ${per}):`, main, output.qty));
+		}
 		for (const d of drops) {
 			const v = rolledValue(d.item, chances, 1 / d.oneIn);
 			if (!v) return null;
 			missing.push(...v.missing.map((r) => `${r} ${d.item}`));
 			perSuccess += v.value / d.oneIn;
+			lines.push(...breakdown(d.item, `${d.item} (1 in ${d.oneIn.toLocaleString()}):`, v, 1 / d.oneIn));
 		}
-		const lines = [`${output.qty}× ${output.item}`, ...drops.map((d) => `${d.item}: 1 in ${d.oneIn}`)];
+		lines.push(`= ${amount(perSuccess)} coins ${per}`);
 		return {
 			perHour: successes * perSuccess,
 			attempts,
@@ -1384,22 +1419,32 @@
 	}
 	function craftingProfit(job, row, profile, skill, level, rarityIndex) {
 		if (!row.cost.length) return null;
+		const rarity = RARITIES[rarityIndex].name;
 		const outValue = value(itemName(job), rarityIndex);
 		if (outValue === null) return null;
+		const attemptsPerItem = 1 / (1 - failChance(job, level));
+		const lines = [`Makes ${rarity} ${itemName(job)}: ${amount(outValue)}`];
 		let inValue = 0;
 		for (const { qty, item } of row.cost) {
-			const v = value(item, materialRarity(item, rarityIndex));
+			const matRarity = materialRarity(item, rarityIndex);
+			const v = cost(item, matRarity);
 			if (v === null) return null;
 			inValue += qty * v;
+			const used = qty * attemptsPerItem;
+			lines.push(`Uses ${amount(used)} ${RARITIES[matRarity].name} ${item}: ${amount(v)} × ${amount(used)} = −${amount(v * used)}`);
 		}
+		if (attemptsPerItem > 1) lines.push(`(×${amount(attemptsPerItem)} materials for burned attempts)`);
+		const perItem = outValue - inValue * attemptsPerItem;
+		lines.push(`= ${perItem > 0 ? "+" : ""}${amount(perItem)} coins per item made`);
 		const gain = 1 + skillXpGain(profile, skill) / 100;
 		const successes = row.xpPerHour / (job.xp * RARITIES[rarityIndex].multiplier * gain);
-		const attempts = successes / (1 - failChance(job, level));
+		const attempts = successes * attemptsPerItem;
 		return {
-			perHour: successes * outValue - attempts * inValue,
+			perHour: successes * perItem,
 			attempts,
 			missing: [],
-			lines: [`${RARITIES[rarityIndex].name}: ${row.cost.map((c) => `${c.qty} ${c.item}`).join(" + ")}`]
+			lines,
+			costed: true
 		};
 	}
 	var compact = new Intl.NumberFormat("en", {
@@ -1419,8 +1464,12 @@
 	}
 	function tooltip(result) {
 		const lines = [
+			`Prices: ${priceNote()}`,
+			...result.costed ? [`Costs: ${costNote()}`] : [],
+			"",
 			...result.lines,
-			`≈ ${compact.format(result.attempts)} actions/h`,
+			"",
+			`≈ ${amount(result.attempts)} actions/h (from the game's xp/h)`,
 			`${compact.format(result.perHour)} coins/h · ${compact.format(result.perHour * 24)} coins/day`
 		];
 		if (result.missing.length) lines.push(`No price, left out: ${result.missing.join(", ")}`);
@@ -1465,7 +1514,72 @@
 				const allRarities = RARITIES.map((_, i) => i);
 				showLog(row.el, state.settings.log ? logItem : null, allRarities);
 			}
+			for (const el of list.querySelectorAll("button.craft-cat")) showCategoryBest(el, profile ? categoryBest(skill, el.dataset.cat, level, profile) : null);
 		}
+	}
+	function categoryRarity(jobs) {
+		const picked = document.querySelector("[data-rarity-choices] button[aria-pressed=\"true\"]");
+		if (picked?.dataset.rarity !== void 0) return +picked.dataset.rarity;
+		if (!picked) return 0;
+		for (let r = RARITIES.length - 1; r > 0; r--) if (jobs.some((job) => (materialsFor(job.name, 1, RARITIES[r].name) ?? [{}]).every((m) => m.material && (state.bank[itemId(m.material, materialRarity(m.material, r))] ?? 0) >= m.quantity))) return r;
+		return 0;
+	}
+	function categoryBest(skill, category, level, profile) {
+		const jobs = JOBS.filter((j) => j.skill === skill && j.category.toLowerCase() === String(category).toLowerCase() && j.level <= level);
+		if (!jobs.length) return null;
+		const rarityIndex = categoryRarity(jobs);
+		let best = null;
+		for (const job of jobs) {
+			const materials = materialsFor(job.name, 1, RARITIES[rarityIndex].name);
+			const outValue = value(itemName(job), rarityIndex);
+			if (!materials || outValue === null) continue;
+			const attemptsPerItem = 1 / (1 - failChance(job, level));
+			let inValue = 0;
+			for (const m of materials) {
+				const v = cost(m.material, materialRarity(m.material, rarityIndex));
+				if (v === null) {
+					inValue = null;
+					break;
+				}
+				inValue += m.quantity * v;
+			}
+			if (inValue === null) continue;
+			const perItem = outValue - inValue * attemptsPerItem;
+			const seconds = actionTime(job.time, profile.speed?.[skill] ?? 0, level - job.level) * attemptsPerItem;
+			const perHour = perItem * 3600 / seconds;
+			if (!best || perHour > best.perHour) best = {
+				job,
+				rarity: RARITIES[rarityIndex].name,
+				perItem,
+				perHour,
+				attempts: 3600 / seconds * attemptsPerItem
+			};
+		}
+		return best;
+	}
+	function showCategoryBest(el, best) {
+		let span = el.querySelector(".careless-cat-best");
+		if (!best) {
+			span?.remove();
+			return;
+		}
+		if (!span) {
+			span = document.createElement("span");
+			span.className = "careless-cat-best";
+			(el.querySelector(".craft-cat-meta") ?? el.lastElementChild)?.after(span);
+		}
+		const text = `Best: ${itemName(best.job)} ${label(best)}`;
+		const title = [
+			`Most profitable ${best.rarity} item you can make here`,
+			`Prices: ${priceNote()}`,
+			`Costs: ${costNote()}`,
+			`${amount(best.perItem)} coins per item made`,
+			`≈ ${amount(best.attempts)} actions/h, estimated from your speed and level (no walking to the depot)`
+		].join("\n");
+		const tone = best.perHour > 0 ? "up" : "down";
+		if (span.textContent !== text) span.textContent = text;
+		if (span.title !== title) span.title = title;
+		if (span.dataset.tone !== tone) span.dataset.tone = tone;
 	}
 	function showLog(el, item, rarityIndexes) {
 		let span = el.querySelector(".careless-log");
@@ -1529,9 +1643,13 @@
 		const radio = (name, v, text) => `<label><input type="radio" name="${name}" value="${v}"${s[name] === v ? " checked" : ""}> ${text}</label>`;
 		return `
     <strong>Careless Tools · Profit</strong>
-    <fieldset><legend>Price</legend>
+    <fieldset><legend>Price (what you make)</legend>
       ${radio("price", "bid", "Sell now (highest buy order)")}
       ${radio("price", "ask", "List it (lowest sell order)")}
+    </fieldset>
+    <fieldset><legend>Cost (crafting materials)</legend>
+      ${radio("cost", "ask", "Buy now (lowest sell order)")}
+      ${radio("cost", "bid", "Place a buy order (highest buy order)")}
     </fieldset>
     <label><input type="checkbox" name="tax"${s.tax ? " checked" : ""}> Take off market tax (${state.taxBp / 100}%)</label>
     <fieldset><legend>Show</legend>
@@ -1639,6 +1757,9 @@
     .careless-log .careless-rare { color: #769fcc; }
     .careless-log .careless-epic { color: #b993d4; }
     .careless-log .careless-legendary { color: #dfb964; }
+    .careless-cat-best { display: block; font-size: 0.8em; margin-top: 2px; }
+    .careless-cat-best[data-tone="up"] { color: #8fd47e; }
+    .careless-cat-best[data-tone="down"] { color: #e0846f; }
     #careless-profit-settings { position: fixed; right: 8px; bottom: 8px; z-index: 99998; font: 12px sans-serif; color: #e6d6ae; }
     #careless-profit-settings > button { padding: 4px 8px; border: 1px solid #756440; border-radius: 6px; background: #171c24; color: inherit; cursor: pointer; }
     #careless-profit-settings .panel { position: absolute; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; gap: 8px;
