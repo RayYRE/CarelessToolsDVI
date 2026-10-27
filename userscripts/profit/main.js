@@ -224,6 +224,18 @@ const itemId = (name, rarityIndex) => {
   return base === undefined ? undefined : base + 1000 * rarityIndex
 }
 
+// The first of these names that we have an item ID for. A tooltip may name the item a little
+// differently from our data, or list several ("Copper or Tin"), so each part is tried, then the
+// row's own name.
+function knownItem(...names) {
+  const candidates = names
+    .filter(Boolean)
+    .flatMap((name) => [name, ...name.split(/\s*(?:,|\/|&|\bor\b|\band\b)\s*/i)])
+    .map((name) => name.trim())
+    .filter(Boolean)
+  return candidates.find((name) => itemId(name, 0) !== undefined) ?? null
+}
+
 // What one item is worth with the chosen price, after tax; null if there's no price
 function value(name, rarityIndex) {
   if (normalize(name) === 'coins') return 1
@@ -301,8 +313,15 @@ function craftingRarity(rows) {
 // ---------------------------------------------------------------- profit per job
 
 function gatheringProfit(job, row, profile, skill, level) {
-  const { output, drops } = parseTip(row.tip)
-  if (!output) return null
+  // A few rows (Copper, Tin, Fishing) have no "Drops" hover: assume 1 of the row's item per
+  // action and no extra drops, like the other gathering rows
+  const tip = parseTip(row.tip)
+  const tipOutput = tip.output ?? { qty: 1, item: row.name }
+  const { drops } = tip
+  const coins = normalize(tipOutput.item) === 'coins'
+  const outputItem = coins ? tipOutput.item : knownItem(tipOutput.item, row.name)
+  if (!outputItem) return null
+  const output = { qty: tipOutput.qty, item: outputItem }
   const chances = rarityChances(oddsMultiplier(profile.luck?.[skill] ?? 0, profile.rareFind ?? 0))
   const gain = 1 + skillXpGain(profile, skill) / 100
   // Stalls get no rarity XP bonus; everything else gathers at the average rarity multiplier
@@ -312,8 +331,7 @@ function gatheringProfit(job, row, profile, skill, level) {
 
   const missing = []
   // Coins are fixed; anything else is an item whose rarity is rolled (stall loot included)
-  const main =
-    normalize(output.item) === 'coins' ? { value: 1, missing: [] } : rolledValue(output.item, chances)
+  const main = coins ? { value: 1, missing: [] } : rolledValue(output.item, chances)
   if (!main) return null
   missing.push(...main.missing.map((r) => `${r} ${output.item}`))
   let perSuccess = output.qty * main.value
@@ -411,14 +429,16 @@ function annotate() {
       }
       show(row.el, result)
       // Collection log: what a gathering job collects (from its tooltip), or the crafted item
-      // Straight from the game's row, so it works for jobs our list doesn't know too
-      const logItem = isGathering(skill)
-        ? parseTip(row.tip).output?.item
-        : job
-          ? itemName(job)
-          : row.name
+      // Straight from the game's row, so it works for jobs our list doesn't know too.
+      // Stalls pay coins, which have no log entry, so they show their drop's (e.g. Rough gem).
+      const tip = parseTip(row.tip)
+      const logItem = !isGathering(skill)
+        ? knownItem(job && itemName(job), row.name)
+        : tip.output && normalize(tip.output.item) === 'coins'
+          ? knownItem(tip.drops[0]?.item, job?.drop?.item)
+          : knownItem(tip.output?.item, row.name)
       const allRarities = RARITIES.map((_, i) => i)
-      showLog(row.el, state.settings.log && logItem && normalize(logItem) !== 'coins' ? logItem : null, allRarities)
+      showLog(row.el, state.settings.log ? logItem : null, allRarities)
     }
   }
 }

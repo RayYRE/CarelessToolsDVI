@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Careless Tools · Profit
 // @namespace    https://carelesstoolsdvi.carelesscapybara.workers.dev/
-// @version      1.0
+// @version      2.0
 // @description  Shows estimated profit next to each job's xp/h in Deep Vein Idle. Read-only: never sends game commands.
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
@@ -1194,6 +1194,9 @@
 		const base = _item_ids_default[normalize(name)] ?? state.feedIds[normalize(name)];
 		return base === void 0 ? void 0 : base + 1e3 * rarityIndex;
 	};
+	function knownItem(...names) {
+		return names.filter(Boolean).flatMap((name) => [name, ...name.split(/\s*(?:,|\/|&|\bor\b|\band\b)\s*/i)]).map((name) => name.trim()).filter(Boolean).find((name) => itemId(name, 0) !== void 0) ?? null;
+	}
 	function value(name, rarityIndex) {
 		if (normalize(name) === "coins") return 1;
 		const price = state.prices.items[itemId(name, rarityIndex)]?.[state.settings.price === "ask" ? 0 : 1];
@@ -1257,15 +1260,26 @@
 		return 0;
 	}
 	function gatheringProfit(job, row, profile, skill, level) {
-		const { output, drops } = parseTip(row.tip);
-		if (!output) return null;
+		const tip = parseTip(row.tip);
+		const tipOutput = tip.output ?? {
+			qty: 1,
+			item: row.name
+		};
+		const { drops } = tip;
+		const coins = normalize(tipOutput.item) === "coins";
+		const outputItem = coins ? tipOutput.item : knownItem(tipOutput.item, row.name);
+		if (!outputItem) return null;
+		const output = {
+			qty: tipOutput.qty,
+			item: outputItem
+		};
 		const chances = rarityChances(oddsMultiplier(profile.luck?.[skill] ?? 0, profile.rareFind ?? 0));
 		const gain = 1 + skillXpGain(profile, skill) / 100;
 		const xpPerSuccess = job.xp * (job.stall ? 1 : expectedMultiplier(chances)) * gain;
 		const successes = row.xpPerHour / xpPerSuccess;
 		const attempts = successes / (1 - failChance(job, level));
 		const missing = [];
-		const main = normalize(output.item) === "coins" ? {
+		const main = coins ? {
 			value: 1,
 			missing: []
 		} : rolledValue(output.item, chances);
@@ -1363,9 +1377,10 @@
 				let result = null;
 				if (job && profile && row.xpPerHour > 0) result = isGathering(skill) ? gatheringProfit(job, row, profile, skill, level) : craftingProfit(job, row, profile, skill, level, rarity);
 				show(row.el, result);
-				const logItem = isGathering(skill) ? parseTip(row.tip).output?.item : job ? itemName(job) : row.name;
+				const tip = parseTip(row.tip);
+				const logItem = !isGathering(skill) ? knownItem(job && itemName(job), row.name) : tip.output && normalize(tip.output.item) === "coins" ? knownItem(tip.drops[0]?.item, job?.drop?.item) : knownItem(tip.output?.item, row.name);
 				const allRarities = RARITIES.map((_, i) => i);
-				showLog(row.el, state.settings.log && logItem && normalize(logItem) !== "coins" ? logItem : null, allRarities);
+				showLog(row.el, state.settings.log ? logItem : null, allRarities);
 			}
 		}
 	}
