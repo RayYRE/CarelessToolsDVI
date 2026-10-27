@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Careless Tools · Profit
 // @namespace    https://carelesstoolsdvi.carelesscapybara.workers.dev/
-// @version      2.0
+// @version      1.0
 // @description  Shows estimated profit next to each job's xp/h in Deep Vein Idle. Read-only: never sends game commands.
 // @match        https://deepveinidle.com/*
 // @match        https://cn.deepveinidle.com/*
@@ -187,8 +187,27 @@
 	];
 	//#endregion
 	//#region src/core/xp.js
+	function levelForXp(xp) {
+		let lo = 1;
+		let hi = 240;
+		while (lo < hi) {
+			const mid = lo + hi + 1 >> 1;
+			if (TOTAL_XP[mid] <= xp) lo = mid;
+			else hi = mid - 1;
+		}
+		return lo;
+	}
+	function xpPerAction(baseXp, rarityMultiplier, xpGainPercent) {
+		return baseXp * rarityMultiplier * (1 + xpGainPercent / 100);
+	}
 	function oddsMultiplier(luckPercent, rareFindPercent) {
 		return (1 + luckPercent / 100) * (1 + rareFindPercent / 100);
+	}
+	var TICK_SECONDS = .6;
+	var SPEED_PER_LEVEL_ABOVE = .005;
+	function actionTime(baseSeconds, speedPercent, levelsAbove = 0) {
+		const speed = (1 + speedPercent / 100) * (1 + SPEED_PER_LEVEL_ABOVE * Math.max(0, levelsAbove));
+		return Math.max(TICK_SECONDS, baseSeconds / speed);
 	}
 	function rarityChances(odds) {
 		const atLeast = RARITIES.map((r) => Math.min(1, odds / r.oneIn));
@@ -605,7 +624,7 @@
 		skirt: 3,
 		robe: 5
 	};
-	({
+	var RECIPES = {
 		...BARS,
 		...Object.fromEntries(Object.values(BAR_ITEMS).flatMap((items) => Object.entries(items).flatMap(([item, n]) => METALS.map((m) => [`${m} ${item}`, [[n, `${m} bar`]]])))),
 		...Object.fromEntries(METALS.flatMap((m, i) => [[`${m} rod`, [[1, `${m} bar`], [1, METAL_LOGS[i]]]], [`${m} hoe`, [[1, `${m} bar`], [2, METAL_LOGS[i]]]]])),
@@ -613,15 +632,71 @@
 			[w ? `${w} shortbow` : "Shortbow", [[1, logs(w)]]],
 			[w ? `${w} longbow` : "Longbow", [[2, logs(w)]]],
 			[w ? `${w} staff` : "Staff", [[2, logs(w)]]]
-		]))
-	}), { ...Object.fromEntries(Object.entries({
-		...HIDES,
-		...BOLTS
-	}).flatMap(([set, material]) => Object.entries(PIECES).map(([piece, n]) => [`${set} ${piece}`, [[n, material]]]))) }, { ...Object.fromEntries(JOBS.filter((j) => j.skill === "Cooking").map((j) => {
-		const fish = j.name.replace(/^Cook /, "");
-		return [j.name, [[1, fish[0].toUpperCase() + fish.slice(1)]]];
-	})) };
+		])),
+		"Pelt quiver": [[2, "Gnawer pelt"], [1, "Logs"]],
+		"Bogskin quiver": [[2, "Bogling skin"], [1, "Oak logs"]],
+		"Chitin quiver": [[2, "Husk chitin"], [1, "Willow logs"]],
+		"Fur quiver": [[2, "Rimewolf fur"], [1, "Maple logs"]],
+		"Scale quiver": [[2, "Ember scale"], [1, "Yew logs"]],
+		"Troll quiver": [[2, "Troll hide"], [1, "Magic logs"]],
+		"Gatherer's draught": [[1, "Sage"], [1, "Gnawer pelt"]],
+		"Swift draught": [[1, "Sage"], [1, "Husk chitin"]],
+		"Hunter's brew": [[1, "Nightshade"], [1, "Cairn bone"]],
+		"Nourishing draught": [[1, "Nightshade"], [1, "Wraith dust"]],
+		"Warrior's tonic": [[1, "Dragonleaf"], [1, "Wraith dust"]],
+		"Haste draught": [[1, "Dragonleaf"], [1, "Rimewolf fur"]],
+		"Elixir of the vein": [
+			[1, "Nightshade"],
+			[1, "Dragonleaf"],
+			[1, "Stalker claw"]
+		],
+		"Abyssal tonic": [[1, "Dragonleaf"], [1, "Horror ichor"]],
+		"Cut gem": [[1, "Rough gem"]],
+		"Silver ring": [[1, "Silver"], [1, "Cut gem"]],
+		"Gold ring": [[1, "Gold"], [1, "Cut gem"]],
+		"Meteoric ring": [[1, "Meteoric bar"], [2, "Cut gem"]],
+		"Wyrm ring": [[1, "Wyrm ember"], [2, "Cut gem"]],
+		"Silver amulet": [[1, "Silver"], [1, "Cut gem"]],
+		"Gold amulet": [[1, "Gold"], [1, "Cut gem"]],
+		"Meteoric amulet": [[1, "Meteoric bar"], [2, "Cut gem"]],
+		"Leviathan amulet": [[1, "Leviathan scale"], [2, "Cut gem"]],
+		...Object.fromEntries(Object.entries({
+			...HIDES,
+			...BOLTS
+		}).flatMap(([set, material]) => Object.entries(PIECES).map(([piece, n]) => [`${set} ${piece}`, [[n, material]]]))),
+		"Wightweave hood": [[2, "Voidweave bolt"], [1, "Ice wight shard"]],
+		"Wightweave robe": [[5, "Voidweave bolt"], [3, "Ice wight shard"]],
+		"Wightweave skirt": [[3, "Voidweave bolt"], [2, "Ice wight shard"]],
+		"Pelt gloves": [[4, "Gnawer pelt"]],
+		"Bogskin gloves": [[2, "Bogling skin"], [1, "Bog pearl"]],
+		"Chitin gloves": [[2, "Husk chitin"], [1, "Dry sigil"]],
+		"Bone gloves": [[2, "Cairn bone"], [1, "Cairn token"]],
+		"Scale gloves": [[2, "Ember scale"], [1, "Ember heart"]],
+		"Linen grimoire": [[3, "Homespun bolt"]],
+		"Silk grimoire": [[3, "Silk bolt"], [1, "Bogling skin"]],
+		"Gilded grimoire": [[3, "Gilded bolt"], [1, "Wraith dust"]],
+		"Voidweave grimoire": [[3, "Voidweave bolt"], [2, "Stalker claw"]],
+		"Wightweave grimoire": [[3, "Voidweave bolt"], [2, "Ice wight shard"]],
+		...Object.fromEntries(JOBS.filter((j) => j.skill === "Cooking").map((j) => {
+			const fish = j.name.replace(/^Cook /, "");
+			return [j.name, [[1, fish[0].toUpperCase() + fish.slice(1)]]];
+		}))
+	};
 	var COMMON_ONLY = ["Coal"];
+	/**
+	* Materials for `attempts` crafts of a job at a rarity: [{ material, quantity, rarity }], or
+	* null if the recipe is unknown. Rarer crafts use materials of the same rarity (except
+	* COMMON_ONLY ones), and every attempt uses materials, including burned/failed ones.
+	*/
+	function materialsFor(jobName, attempts, rarity) {
+		const recipe = RECIPES[jobName];
+		if (!recipe) return null;
+		return recipe.map(([n, material]) => ({
+			material,
+			quantity: n * attempts,
+			rarity: COMMON_ONLY.includes(material) ? "Common" : rarity
+		}));
+	}
 	//#endregion
 	//#region src/game/xpSources.js
 	var SCOPES = [{
@@ -1034,6 +1109,12 @@
 		taxBp: 0,
 		bank: {},
 		collections: {},
+		skills: {},
+		market: {
+			skill: "All",
+			onlyProfitable: true,
+			sort: "perHour"
+		},
 		feedIds: {},
 		stats: null
 	};
@@ -1097,6 +1178,7 @@
 			if ((m?.t === "welcome" || m?.t === "snapshot") && m.you) {
 				state.bank = storageFrom(m.you);
 				if (m.you.collections && typeof m.you.collections === "object") state.collections = m.you.collections;
+				if (m.you.skills && typeof m.you.skills === "object") state.skills = m.you.skills;
 				changed = true;
 				startPeeking();
 			}
@@ -1355,6 +1437,7 @@
 		requestAnimationFrame(() => {
 			renderQueued = false;
 			annotate();
+			marketRefresh?.();
 		});
 	}
 	function annotate() {
@@ -1460,6 +1543,87 @@
     <small>Prices: ${Object.keys(state.prices.items).length} items, ${age(state.prices.capturedAt)}${state.prices.source === "feed" ? " (price feed, updates every 5 min)" : ""}.<br>Open the market for live prices.<br>
       Bonuses: ${age(state.stats?.capturedAt)}.</small>`;
 	}
+	var marketRefresh = null;
+	var rawPrice = (name, rarityIndex, side) => state.prices.items[itemId(name, rarityIndex)]?.[side] || null;
+	function marketRows() {
+		const profile = state.stats?.profile;
+		const tax = state.taxBp / 1e4;
+		const rows = [];
+		for (const job of JOBS) {
+			if (!SKILL_GROUPS.Processing.includes(job.skill)) continue;
+			const level = levelForXp(state.skills[job.skill.toLowerCase()] ?? 0);
+			const attemptsPerItem = 1 / (1 - failChance(job, level));
+			const seconds = actionTime(job.time, profile?.speed?.[job.skill] ?? 0, level - job.level) * attemptsPerItem;
+			const item = itemName(job);
+			for (const [i, r] of RARITIES.entries()) {
+				const materials = materialsFor(job.name, 1, r.name);
+				const bid = rawPrice(item, i, 1);
+				if (!materials || !bid) continue;
+				let cost = 0;
+				for (const m of materials) {
+					const ask = rawPrice(m.material, RARITIES.findIndex((x) => x.name === m.rarity), 0);
+					if (!ask) {
+						cost = null;
+						break;
+					}
+					cost += m.quantity * ask * attemptsPerItem;
+				}
+				if (cost === null) continue;
+				const revenue = bid * (1 - tax);
+				const profit = revenue - cost;
+				rows.push({
+					job,
+					item,
+					rarity: r.name,
+					level,
+					materials: materials.map((m) => `${+(m.quantity * attemptsPerItem).toFixed(2)} ${m.material}`).join(" + "),
+					cost,
+					revenue,
+					profit,
+					margin: profit / cost,
+					perHour: profit * 3600 / seconds,
+					xp: profile ? xpPerAction(job.xp, r.multiplier, skillXpGain(profile, job.skill)) : null
+				});
+			}
+		}
+		return rows;
+	}
+	var esc = (text) => String(text).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+	var coins = (n) => Math.abs(n) < 1e3 ? Math.round(n).toLocaleString() : compact.format(n);
+	function marketPanel() {
+		const f = state.market;
+		const all = marketRows();
+		const shown = all.filter((r) => f.skill === "All" || r.job.skill === f.skill).filter((r) => !f.onlyProfitable || r.profit > 0).filter((r) => r.level >= r.job.level).sort((a, b) => b[f.sort] - a[f.sort]);
+		const age = state.prices.capturedAt ? `${Math.round((Date.now() - state.prices.capturedAt) / 6e4)} min ago${state.prices.source === "feed" ? " (price feed)" : ""}` : "no prices yet";
+		const sortHead = (key, text) => `<th><button type="button" data-sort="${key}"${f.sort === key ? " class=\"on\"" : ""}>${text}${f.sort === key ? " ↓" : ""}</button></th>`;
+		const rows = shown.map((r) => `<tr>
+        <td>${esc(r.item)} <small>${esc(r.job.skill)} ${r.job.level}</small></td>
+        <td class="careless-${r.rarity.toLowerCase()}">${r.rarity}</td>
+        <td><small>${esc(r.materials)}</small></td>
+        <td>${coins(r.cost)}</td>
+        <td>${coins(r.revenue)}</td>
+        <td class="${r.profit > 0 ? "up" : "down"}">${r.profit > 0 ? "+" : ""}${coins(r.profit)}</td>
+        <td>${Math.round(r.margin * 100)}%</td>
+        <td class="${r.perHour > 0 ? "up" : "down"}">${r.perHour > 0 ? "+" : ""}${coins(r.perHour)}</td>
+        <td>${r.xp === null ? "—" : Math.round(r.xp).toLocaleString()}</td>
+      </tr>`).join("");
+		return `
+    <div class="market-head">
+      <strong>Buy now, sell now</strong>
+      <select name="skill">${["All", ...SKILL_GROUPS.Processing].map((s) => `<option${s === f.skill ? " selected" : ""}>${s}</option>`).join("")}</select>
+      <label><input type="checkbox" name="onlyProfitable"${f.onlyProfitable ? " checked" : ""}> Only profitable</label>
+    </div>
+    <small>Materials bought from the cheapest sell orders, product sold to the highest buy order after
+      ${state.taxBp / 100}% tax. Unlocked crafts only. Prices: ${age}.</small>
+    <div class="market-table">
+      <table>
+        <thead><tr><th>Item</th><th>Rarity</th><th>Buy</th><th>Cost</th><th>Sells for</th>
+          ${sortHead("profit", "Profit")}${sortHead("margin", "Margin")}${sortHead("perHour", "Profit/h")}<th>XP</th></tr></thead>
+        <tbody>${rows || "<tr><td colspan=\"9\">Nothing matches right now.</td></tr>"}</tbody>
+      </table>
+    </div>
+    <small>${shown.length} of ${all.length} priced crafts. Profit/h uses your speed and level, without walking to the depot.</small>`;
+	}
 	function mountSettings() {
 		if (document.getElementById("careless-profit-settings")) return;
 		const style = document.createElement("style");
@@ -1481,32 +1645,87 @@
       min-width: 240px; padding: 10px; border: 1px solid #756440; border-radius: 6px; background: #171c24; }
     #careless-profit-settings fieldset { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 2px; }
     #careless-profit-settings legend { padding: 0 0 2px; opacity: 0.8; }
-    #careless-profit-settings small { opacity: 0.8; line-height: 1.4; }`;
+    #careless-profit-settings small { opacity: 0.8; line-height: 1.4; }
+    #careless-profit-settings { display: flex; gap: 6px; }
+    #careless-profit-settings .panel.market { width: min(860px, calc(100vw - 24px)); max-height: 70vh; }
+    #careless-profit-settings .market-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    #careless-profit-settings .market-head select { background: #0f141b; color: inherit; border: 1px solid #756440; border-radius: 4px; }
+    #careless-profit-settings .market-table { overflow: auto; min-height: 0; flex: 1; }
+    #careless-profit-settings .market-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #careless-profit-settings .market-table :is(th, td) { padding: 3px 6px; text-align: right; white-space: nowrap;
+      border-bottom: 1px solid rgba(117, 100, 64, 0.35); }
+    #careless-profit-settings .market-table :is(th, td):nth-child(-n+3) { text-align: left; }
+    #careless-profit-settings .market-table td:nth-child(3) { white-space: normal; min-width: 120px; }
+    #careless-profit-settings .market-table thead th { position: sticky; top: 0; background: #171c24; opacity: 0.85; }
+    #careless-profit-settings .market-table th button { all: unset; cursor: pointer; }
+    #careless-profit-settings .market-table th button.on { color: #fff; }
+    #careless-profit-settings .market-table .up { color: #8fd47e; }
+    #careless-profit-settings .market-table .down { color: #e0846f; }
+    #careless-profit-settings .careless-uncommon { color: #88c977; }
+    #careless-profit-settings .careless-rare { color: #769fcc; }
+    #careless-profit-settings .careless-epic { color: #b993d4; }
+    #careless-profit-settings .careless-legendary { color: #dfb964; }`;
 		document.head.append(style);
 		const root = document.createElement("div");
 		root.id = "careless-profit-settings";
-		root.innerHTML = "<button type=\"button\" title=\"Careless Tools profit settings\">Profit ⚙</button>";
-		const button = root.querySelector("button");
+		root.innerHTML = "<button type=\"button\" data-open=\"market\" title=\"Crafts that make money buying now and selling now\">Market</button><button type=\"button\" data-open=\"settings\" title=\"Careless Tools profit settings\">Profit ⚙</button>";
 		let panel = null;
+		let open = null;
 		const close = () => {
 			panel?.remove();
 			panel = null;
+			open = null;
+			marketRefresh = null;
 		};
-		button.addEventListener("click", () => {
-			if (panel) return close();
+		const show = (which) => {
+			close();
+			open = which;
 			panel = document.createElement("div");
-			panel.className = "panel";
-			panel.innerHTML = settingsPanel();
-			panel.addEventListener("change", (e) => {
-				const { name, type, value: v, checked } = e.target;
-				state.settings = {
-					...state.settings,
-					[name]: type === "checkbox" ? checked : v
+			panel.className = which === "market" ? "panel market" : "panel";
+			if (which === "market") {
+				let last = "";
+				marketRefresh = (force) => {
+					const html = marketPanel();
+					if (html === last && !force) return;
+					last = html;
+					panel.innerHTML = html;
 				};
-				GM_setValue(SETTINGS_KEY, state.settings);
-				render();
-			});
+				marketRefresh();
+				panel.addEventListener("change", (e) => {
+					const { name, type, value: v, checked } = e.target;
+					state.market = {
+						...state.market,
+						[name]: type === "checkbox" ? checked : v
+					};
+					marketRefresh();
+				});
+				panel.addEventListener("click", (e) => {
+					const sort = e.target.closest("[data-sort]")?.dataset.sort;
+					if (!sort) return;
+					state.market = {
+						...state.market,
+						sort
+					};
+					marketRefresh();
+				});
+			} else {
+				panel.innerHTML = settingsPanel();
+				panel.addEventListener("change", (e) => {
+					const { name, type, value: v, checked } = e.target;
+					state.settings = {
+						...state.settings,
+						[name]: type === "checkbox" ? checked : v
+					};
+					GM_setValue(SETTINGS_KEY, state.settings);
+					render();
+				});
+			}
 			root.append(panel);
+		};
+		for (const button of root.querySelectorAll("[data-open]")) button.addEventListener("click", () => {
+			const which = button.dataset.open;
+			if (open === which) close();
+			else show(which);
 		});
 		document.addEventListener("pointerdown", (e) => panel && !root.contains(e.target) && close());
 		document.body.append(root);

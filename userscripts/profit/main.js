@@ -10,7 +10,15 @@
 // market is opened, and until then from the game's public price feed; remembered between sessions. Your bonuses come from the stats window, read the same way as
 // the CarelessToolsImport userscript.
 
-import { expectedMultiplier, failChance, oddsMultiplier, rarityChances } from '../../src/core/xp.js'
+import {
+  actionTime,
+  expectedMultiplier,
+  failChance,
+  levelForXp,
+  oddsMultiplier,
+  rarityChances,
+  xpPerAction,
+} from '../../src/core/xp.js'
 import {
   MILESTONES,
   formatMilestone,
@@ -18,9 +26,9 @@ import {
   milestonePoints,
   nextMilestoneIndex,
 } from '../../src/game/collection.js'
-import { JOBS, isGathering } from '../../src/game/jobs.js'
+import { JOBS, SKILL_GROUPS, isGathering } from '../../src/game/jobs.js'
 import { RARITIES } from '../../src/game/rarities.js'
-import { COMMON_ONLY } from '../../src/game/recipes.js'
+import { COMMON_ONLY, materialsFor } from '../../src/game/recipes.js'
 import { parseStats } from '../../src/import/stats.js'
 import { skillXpGain } from '../../src/profile/xpGain.js'
 import ITEM_IDS from 'virtual:item-ids'
@@ -50,6 +58,8 @@ const state = {
   taxBp: 0, // market tax in basis points, from the welcome message
   bank: {}, // itemId -> qty across bank, pack, overflow, home bank
   collections: {}, // itemId -> collection log count
+  skills: {}, // skill name (lower case) -> XP, for levels in the Market panel
+  market: { skill: 'All', onlyProfitable: true, sort: 'perHour' }, // Market panel filters
   feedIds: {}, // normalised item name -> base item ID, from the price feed (items our list lacks)
   stats: null, // { profile: { xpGain, xpGainSources, luck, rareFind }, capturedAt }
 }
@@ -120,6 +130,7 @@ function onFrame(raw) {
     if ((m?.t === 'welcome' || m?.t === 'snapshot') && m.you) {
       state.bank = storageFrom(m.you)
       if (m.you.collections && typeof m.you.collections === 'object') state.collections = m.you.collections
+      if (m.you.skills && typeof m.you.skills === 'object') state.skills = m.you.skills
       changed = true
       startPeeking()
     }
@@ -400,6 +411,7 @@ function render() {
   requestAnimationFrame(() => {
     renderQueued = false
     annotate()
+    marketRefresh?.()
   })
 }
 
@@ -534,6 +546,114 @@ function settingsPanel() {
       Bonuses: ${age(state.stats?.capturedAt)}.</small>`
 }
 
+// ---------------------------------------------------------------- Market panel
+
+// Redraws the Market panel while it's open (set by mountSettings), so new prices show up
+let marketRefresh = null
+
+// Raw best price of an item at a rarity: side 0 = ask (lowest sell order), 1 = bid (highest buy)
+const rawPrice = (name, rarityIndex, side) => state.prices.items[itemId(name, rarityIndex)]?.[side] || null
+
+// Every craft at every rarity, priced as "buy the materials now, sell the product now":
+// materials at the lowest sell order, the product at the highest buy order after market tax.
+// Rows missing a price for the product or any material are left out.
+function marketRows() {
+  const profile = state.stats?.profile
+  const tax = state.taxBp / 10000
+  const rows = []
+  for (const job of JOBS) {
+    if (!SKILL_GROUPS.Processing.includes(job.skill)) continue
+    const level = levelForXp(state.skills[job.skill.toLowerCase()] ?? 0)
+    // Burned attempts give nothing but still use materials
+    const attemptsPerItem = 1 / (1 - failChance(job, level))
+    const seconds =
+      actionTime(job.time, profile?.speed?.[job.skill] ?? 0, level - job.level) * attemptsPerItem
+    const item = itemName(job)
+    for (const [i, r] of RARITIES.entries()) {
+      const materials = materialsFor(job.name, 1, r.name)
+      const bid = rawPrice(item, i, 1)
+      if (!materials || !bid) continue
+      let cost = 0
+      for (const m of materials) {
+        const ask = rawPrice(m.material, RARITIES.findIndex((x) => x.name === m.rarity), 0)
+        if (!ask) {
+          cost = null
+          break
+        }
+        cost += m.quantity * ask * attemptsPerItem
+      }
+      if (cost === null) continue
+      const revenue = bid * (1 - tax)
+      const profit = revenue - cost
+      rows.push({
+        job,
+        item,
+        rarity: r.name,
+        level,
+        materials: materials.map((m) => `${+(m.quantity * attemptsPerItem).toFixed(2)} ${m.material}`).join(' + '),
+        cost,
+        revenue,
+        profit,
+        margin: profit / cost,
+        perHour: (profit * 3600) / seconds,
+        xp: profile ? xpPerAction(job.xp, r.multiplier, skillXpGain(profile, job.skill)) : null,
+      })
+    }
+  }
+  return rows
+}
+
+const esc = (text) => String(text).replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)
+const coins = (n) => (Math.abs(n) < 1000 ? Math.round(n).toLocaleString() : compact.format(n))
+
+function marketPanel() {
+  const f = state.market
+  const all = marketRows()
+  const shown = all
+    .filter((r) => f.skill === 'All' || r.job.skill === f.skill)
+    .filter((r) => !f.onlyProfitable || r.profit > 0)
+    .filter((r) => r.level >= r.job.level)
+    .sort((a, b) => b[f.sort] - a[f.sort])
+  const age = state.prices.capturedAt
+    ? `${Math.round((Date.now() - state.prices.capturedAt) / 60000)} min ago${state.prices.source === 'feed' ? ' (price feed)' : ''}`
+    : 'no prices yet'
+  const sortHead = (key, text) =>
+    `<th><button type="button" data-sort="${key}"${f.sort === key ? ' class="on"' : ''}>${text}${f.sort === key ? ' ↓' : ''}</button></th>`
+  const rows = shown
+    .map(
+      (r) => `<tr>
+        <td>${esc(r.item)} <small>${esc(r.job.skill)} ${r.job.level}</small></td>
+        <td class="careless-${r.rarity.toLowerCase()}">${r.rarity}</td>
+        <td><small>${esc(r.materials)}</small></td>
+        <td>${coins(r.cost)}</td>
+        <td>${coins(r.revenue)}</td>
+        <td class="${r.profit > 0 ? 'up' : 'down'}">${r.profit > 0 ? '+' : ''}${coins(r.profit)}</td>
+        <td>${Math.round(r.margin * 100)}%</td>
+        <td class="${r.perHour > 0 ? 'up' : 'down'}">${r.perHour > 0 ? '+' : ''}${coins(r.perHour)}</td>
+        <td>${r.xp === null ? '—' : Math.round(r.xp).toLocaleString()}</td>
+      </tr>`,
+    )
+    .join('')
+  return `
+    <div class="market-head">
+      <strong>Buy now, sell now</strong>
+      <select name="skill">${['All', ...SKILL_GROUPS.Processing]
+        .map((s) => `<option${s === f.skill ? ' selected' : ''}>${s}</option>`)
+        .join('')}</select>
+      <label><input type="checkbox" name="onlyProfitable"${f.onlyProfitable ? ' checked' : ''}> Only profitable</label>
+    </div>
+    <small>Materials bought from the cheapest sell orders, product sold to the highest buy order after
+      ${state.taxBp / 100}% tax. Unlocked crafts only. Prices: ${age}.</small>
+    <div class="market-table">
+      <table>
+        <thead><tr><th>Item</th><th>Rarity</th><th>Buy</th><th>Cost</th><th>Sells for</th>
+          ${sortHead('profit', 'Profit')}${sortHead('margin', 'Margin')}${sortHead('perHour', 'Profit/h')}<th>XP</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="9">Nothing matches right now.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <small>${shown.length} of ${all.length} priced crafts. Profit/h uses your speed and level, without walking to the depot.</small>`
+}
+
 function mountSettings() {
   if (document.getElementById('careless-profit-settings')) return
   const style = document.createElement('style')
@@ -555,31 +675,87 @@ function mountSettings() {
       min-width: 240px; padding: 10px; border: 1px solid #756440; border-radius: 6px; background: #171c24; }
     #careless-profit-settings fieldset { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 2px; }
     #careless-profit-settings legend { padding: 0 0 2px; opacity: 0.8; }
-    #careless-profit-settings small { opacity: 0.8; line-height: 1.4; }`
+    #careless-profit-settings small { opacity: 0.8; line-height: 1.4; }
+    #careless-profit-settings { display: flex; gap: 6px; }
+    #careless-profit-settings .panel.market { width: min(860px, calc(100vw - 24px)); max-height: 70vh; }
+    #careless-profit-settings .market-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    #careless-profit-settings .market-head select { background: #0f141b; color: inherit; border: 1px solid #756440; border-radius: 4px; }
+    #careless-profit-settings .market-table { overflow: auto; min-height: 0; flex: 1; }
+    #careless-profit-settings .market-table table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    #careless-profit-settings .market-table :is(th, td) { padding: 3px 6px; text-align: right; white-space: nowrap;
+      border-bottom: 1px solid rgba(117, 100, 64, 0.35); }
+    #careless-profit-settings .market-table :is(th, td):nth-child(-n+3) { text-align: left; }
+    #careless-profit-settings .market-table td:nth-child(3) { white-space: normal; min-width: 120px; }
+    #careless-profit-settings .market-table thead th { position: sticky; top: 0; background: #171c24; opacity: 0.85; }
+    #careless-profit-settings .market-table th button { all: unset; cursor: pointer; }
+    #careless-profit-settings .market-table th button.on { color: #fff; }
+    #careless-profit-settings .market-table .up { color: #8fd47e; }
+    #careless-profit-settings .market-table .down { color: #e0846f; }
+    #careless-profit-settings .careless-uncommon { color: #88c977; }
+    #careless-profit-settings .careless-rare { color: #769fcc; }
+    #careless-profit-settings .careless-epic { color: #b993d4; }
+    #careless-profit-settings .careless-legendary { color: #dfb964; }`
   document.head.append(style)
 
   const root = document.createElement('div')
   root.id = 'careless-profit-settings'
-  root.innerHTML = '<button type="button" title="Careless Tools profit settings">Profit ⚙</button>'
-  const button = root.querySelector('button')
+  root.innerHTML =
+    '<button type="button" data-open="market" title="Crafts that make money buying now and selling now">Market</button>' +
+    '<button type="button" data-open="settings" title="Careless Tools profit settings">Profit ⚙</button>'
+  // One pop-out at a time: the Market list or the settings
   let panel = null
+  let open = null
   const close = () => {
     panel?.remove()
     panel = null
+    open = null
+    marketRefresh = null
   }
-  button.addEventListener('click', () => {
-    if (panel) return close()
+  const show = (which) => {
+    close()
+    open = which
     panel = document.createElement('div')
-    panel.className = 'panel'
-    panel.innerHTML = settingsPanel()
-    panel.addEventListener('change', (e) => {
-      const { name, type, value: v, checked } = e.target
-      state.settings = { ...state.settings, [name]: type === 'checkbox' ? checked : v }
-      GM_setValue(SETTINGS_KEY, state.settings)
-      render()
-    })
+    panel.className = which === 'market' ? 'panel market' : 'panel'
+    if (which === 'market') {
+      // Only rewritten when the content changes: rewriting it is itself a page change, which
+      // triggers another redraw
+      let last = ''
+      marketRefresh = (force) => {
+        const html = marketPanel()
+        if (html === last && !force) return
+        last = html
+        panel.innerHTML = html
+      }
+      marketRefresh()
+      panel.addEventListener('change', (e) => {
+        const { name, type, value: v, checked } = e.target
+        state.market = { ...state.market, [name]: type === 'checkbox' ? checked : v }
+        marketRefresh()
+      })
+      panel.addEventListener('click', (e) => {
+        const sort = e.target.closest('[data-sort]')?.dataset.sort
+        if (!sort) return
+        state.market = { ...state.market, sort }
+        marketRefresh()
+      })
+    } else {
+      panel.innerHTML = settingsPanel()
+      panel.addEventListener('change', (e) => {
+        const { name, type, value: v, checked } = e.target
+        state.settings = { ...state.settings, [name]: type === 'checkbox' ? checked : v }
+        GM_setValue(SETTINGS_KEY, state.settings)
+        render()
+      })
+    }
     root.append(panel)
-  })
+  }
+  for (const button of root.querySelectorAll('[data-open]')) {
+    button.addEventListener('click', () => {
+      const which = button.dataset.open
+      if (open === which) close()
+      else show(which)
+    })
+  }
   document.addEventListener('pointerdown', (e) => panel && !root.contains(e.target) && close())
   document.body.append(root)
 }
