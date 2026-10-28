@@ -1,5 +1,12 @@
 import { expectedMultiplier, levelForXp, walk, xpPerAction } from '../core/xp.js'
-import { MILESTONES, itemName, milestonePoints, nextMilestoneIndex, pointsBetween } from '../game/collection.js'
+import {
+  MILESTONES,
+  itemName,
+  milestoneReached,
+  milestonePoints,
+  nextMilestoneIndex,
+  pointsBetween,
+} from '../game/collection.js'
 import { JOBS, isGathering } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
 import { RECIPES, materialsFor } from '../game/recipes.js'
@@ -38,7 +45,7 @@ export function runPlan({ steps, startXp, xpGain, speed, collection, chances }) 
     for (const [name, qty] of Object.entries(r.gained)) counts[key(item, name)] = have(item, name) + qty
     xp += r.xpGained
     seconds += r.seconds
-    points += r.points
+    points += r.points + (r.sidePoints ?? 0)
     if (r.gathers !== undefined) gathered[item] = (gathered[item] ?? 0) + r.gathers
     return {
       ...step,
@@ -110,10 +117,16 @@ function gatherStep(job, rarity, collected, index, xp, xpGain, speed, { chances,
   const gained = Object.fromEntries(
     chances.filter((c) => c.chance > 0).map((c) => [c.name, c.name === rarity.name ? needed : gathers * c.chance]),
   )
-  const points = Object.entries(gained).reduce(
-    (sum, [name, qty]) => sum + pointsBetween(have(name), have(name) + qty, name),
-    0,
-  )
+  // Other rarities that reach a new milestone from these gathers, with their own points
+  const side = Object.entries(gained)
+    .filter(([name]) => name !== rarity.name)
+    .map(([name, qty]) => ({
+      rarity: name,
+      from: have(name),
+      to: milestoneReached(have(name) + qty),
+      points: pointsBetween(have(name), have(name) + qty, name),
+    }))
+    .filter((s) => s.points > 0)
   const perItem = xpPerAction(job.xp, expectedMultiplier(chances), xpGain)
   const run = walk(job, xp, xp + gathers * perItem, perItem, Infinity, speed)
   return {
@@ -126,7 +139,10 @@ function gatherStep(job, rarity, collected, index, xp, xpGain, speed, { chances,
     materials: [],
     xpGained: gathers * perItem,
     seconds: run.seconds,
-    points,
+    // Points for the planned rarity only; `side` holds the rest
+    points: milestonePoints(index, rarity.name),
+    side,
+    sidePoints: side.reduce((sum, s) => sum + s.points, 0),
   }
 }
 

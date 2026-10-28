@@ -225,6 +225,12 @@ tbody tr {
   &.static {
     cursor: default;
   }
+
+  /* Gathering: other rarities rolled along the way, shown under the planned row */
+  &.side {
+    opacity: 0.75;
+    font-size: 0.9em;
+  }
 }
 
 .cat {

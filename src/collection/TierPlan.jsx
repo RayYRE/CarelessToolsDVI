@@ -57,8 +57,21 @@ function groupSteps(rows) {
     if (!g) {
       // Copy each material too: the totals below must not change the plan's own steps,
       // which are reused on every render
-      groups.set(key, { ...s, materials: s.materials.map((m) => ({ ...m })), indices: [i] })
+      groups.set(key, {
+        ...s,
+        materials: s.materials.map((m) => ({ ...m })),
+        side: (s.side ?? []).map((x) => ({ ...x })),
+        indices: [i],
+      })
       return
+    }
+    // Other rarities filled while gathering: merge by rarity, first start to last tier
+    for (const x of s.side ?? []) {
+      const same = g.side.find((y) => y.rarity === x.rarity)
+      if (same) {
+        same.to = Math.max(same.to, x.to)
+        same.points += x.points
+      } else g.side.push({ ...x })
     }
     g.indices.push(i)
     g.to = s.to
@@ -142,6 +155,10 @@ export default function TierPlan({
               </strong>
             </div>
             <div className="stat">
+              <span>XP after tier plan</span>
+              <strong>{fmt(plan.xp)}</strong>
+            </div>
+            <div className="stat">
               <span>{gathering ? 'Expected gathers' : 'Items to craft'}</span>
               <strong>{fmt(gathering ? totalGathers : rows.reduce((sum, s) => sum + s.items, 0))}</strong>
             </div>
@@ -175,7 +192,7 @@ export default function TierPlan({
                 </tr>
               </thead>
               <tbody>
-                {shown.map((s) => (
+                {shown.map((s) => [
                   <tr key={`${s.item}|${s.rarity}`} className="static">
                     <td>{s.indices[0] + 1}</td>
                     <td>
@@ -206,8 +223,28 @@ export default function TierPlan({
                         ✕
                       </button>
                     </td>
-                  </tr>
-                ))}
+                  </tr>,
+                  // Other rarities this row's gathers push past a milestone, scored on their own
+                  ...s.side.map((x) => (
+                    <tr
+                      key={`${s.item}|${s.rarity}|${x.rarity}`}
+                      className="static side"
+                      title={`Rolled while gathering ${s.item} (${s.rarity})`}
+                    >
+                      <td />
+                      <td>↳ {s.item}</td>
+                      <td className={`rarity-${x.rarity.toLowerCase()}`}>{x.rarity}</td>
+                      <td>
+                        {fmt(Math.floor(x.from))} → {formatMilestone(x.to)}
+                      </td>
+                      <td>—</td>
+                      <td>—</td>
+                      <td />
+                      <td>+{fmt(x.points)}</td>
+                      <td />
+                    </tr>
+                  )),
+                ])}
               </tbody>
             </table>
           </div>

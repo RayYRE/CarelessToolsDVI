@@ -149,7 +149,10 @@ export default function CollectionLog({
                         : `Plan ${row.item} (${r.name}) to ${formatMilestone(next.to)}: ` +
                           `${gathering ? '≈' : ''}${fmt(next.items)} ${gathering ? 'gathers' : 'items'}` +
                           ` → level ${levelForXp(plan.xp + next.xpGained)}` +
-                          (gathering && next.points ? `, +${fmt(next.points)} pts` : '') +
+                          (gathering && next.points
+                            ? `, +${fmt(next.points)} pts` +
+                              (next.sidePoints ? ` (+${fmt(next.sidePoints)} from other rarities)` : '')
+                            : '') +
                           (next.materials.length
                             ? `\nCost: ${next.materials
                                 .map((m) => `${fmt(m.quantity)} ${m.rarity === 'Common' ? '' : `${m.rarity} `}${m.material}`)
