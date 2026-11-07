@@ -3,7 +3,8 @@ import { RARITIES } from '../game/rarities.js'
 
 // Settings button with a pop-out for the greedy search: which item levels and rarities it may
 // plan. `off` is { levels: [15, 30], rarities: ['Legendary'] }, listing what's switched off.
-export default function SearchSettings({ levels, playerLevel, off, onChange }) {
+// Gathering also gets a depth: how many steps the search plans (nothing else limits it there)
+export default function SearchSettings({ levels, playerLevel, off, onChange, gathering, depth, onDepth }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -41,6 +42,18 @@ export default function SearchSettings({ levels, playerLevel, off, onChange }) {
       </button>
       {open && (
         <div className="popover" role="dialog" aria-label="Search settings">
+          {gathering && (
+            <label title="Gathering uses no materials, so the search plans this many steps, best points per gather first">
+              Search depth (steps)
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={depth}
+                onChange={(e) => onDepth(Math.min(100, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
+              />
+            </label>
+          )}
           <fieldset>
             <legend>Item levels</legend>
             {levels.map((level) => (

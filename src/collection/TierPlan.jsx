@@ -12,7 +12,14 @@ const SORT_VALUES = {
   rarity: (s) => RARITIES.findIndex((r) => r.name === s.rarity),
   tier: (s) => s.to,
   points: (s) => s.points,
+  perAction: (s) => pointsPerAction(s),
 }
+
+// Gathers for a side rarity to get from its start to its milestone (Infinity if it never rolls)
+const sideGathers = (x) => (x.chance > 0 ? Math.ceil((x.to - x.from) / x.chance) : Infinity)
+
+// Collection points per item crafted (processing skills); 0 when nothing is crafted or scored
+const pointsPerAction = (s) => (!s.done && s.items > 0 ? s.points / s.items : 0)
 
 // Column heading that sorts on click: highest first, then lowest first, then plan order
 function SortHeader({ label, column, sort, onSort }) {
@@ -89,6 +96,47 @@ function groupSteps(rows) {
   return [...groups.values()]
 }
 
+// Gathering: all of an item's rarities come from the same gathers, so the step needing the most
+// gathers becomes the item's main row and every shorter one is listed beneath it as a side row.
+function foldByItem(groups) {
+  const byItem = new Map()
+  for (const g of groups) {
+    const list = byItem.get(g.item)
+    if (list) list.push(g)
+    else byItem.set(g.item, [g])
+  }
+  const rank = (name) => RARITIES.findIndex((r) => r.name === name)
+  const out = []
+  for (const list of byItem.values()) {
+    if (list.length === 1) {
+      out.push(list[0])
+      continue
+    }
+    const main = list.reduce((a, b) => ((b.itemGathers ?? 0) > (a.itemGathers ?? 0) ? b : a))
+    const folded = { ...main, side: main.side.map((x) => ({ ...x })), indices: [...main.indices] }
+    // Merge a rarity's range into the main row or into an existing side row of the same rarity
+    const absorb = (x) => {
+      const target = x.rarity === folded.rarity ? folded : folded.side.find((y) => y.rarity === x.rarity)
+      if (target) {
+        target.from = Math.min(target.from, x.from)
+        target.to = Math.max(target.to, x.to)
+        target.points += x.points
+      } else folded.side.push({ rarity: x.rarity, from: x.from, to: x.to, points: x.points, chance: x.chance })
+    }
+    for (const g of list) {
+      if (g === main) continue
+      folded.indices.push(...g.indices)
+      if (g.levelBefore !== undefined && g.indices[0] < main.indices[0]) folded.levelBefore = g.levelBefore
+      absorb(g)
+      g.side.forEach(absorb)
+    }
+    folded.indices.sort((a, b) => a - b)
+    folded.side.sort((a, b) => rank(b.rarity) - rank(a.rarity))
+    out.push(folded)
+  }
+  return out.sort((a, b) => a.indices[0] - b.indices[0])
+}
+
 export default function TierPlan({
   plan,
   startLevel,
@@ -101,9 +149,12 @@ export default function TierPlan({
   search,
 }) {
   const { rows } = plan
-  const [sort, setSort] = useState(null)
+  // Processing plans start sorted by points per item, best first; click a heading to change it.
+  // That column doesn't exist for gathering, so it is ignored there.
+  const [chosen, setSort] = useState({ column: 'perAction', dir: -1 })
+  const sort = gathering && chosen?.column === 'perAction' ? null : chosen
   // Grouped rows in plan order (by each group's first step), or sorted by a column
-  const shown = groupSteps(rows)
+  const shown = gathering ? foldByItem(groupSteps(rows)) : groupSteps(rows)
   if (sort) {
     const value = SORT_VALUES[sort.column]
     shown.sort((a, b) => (value(a) - value(b)) * sort.dir || a.indices[0] - b.indices[0])
@@ -130,7 +181,7 @@ export default function TierPlan({
             disabled={!canMaximise}
             title={
               gathering
-                ? 'Gathering uses no materials, so there is nothing to plan from storage'
+                ? 'Plan the best tiers by points per gather, as many steps as the search depth in Settings'
                 : canMaximise
                 ? 'Plan the tiers that earn the most points with what is in your storage'
                 : 'Import from the userscript (v1.6 or later) to plan with your storage'
@@ -183,11 +234,12 @@ export default function TierPlan({
                       Gathers (running total)
                     </th>
                   ) : (
-                    <th>Items needed</th>
+                    <th>Actions</th>
                   )}
                   <th>Cost</th>
                   <th>Level after</th>
                   <SortHeader label="Points" column="points" {...sortProps} />
+                  {!gathering && <SortHeader label="Pts/action" column="perAction" {...sortProps} />}
                   <th aria-label="Remove" />
                 </tr>
               </thead>
@@ -212,6 +264,9 @@ export default function TierPlan({
                       {s.levelBefore === s.levelAfter ? s.levelAfter : `${s.levelBefore} → ${s.levelAfter}`}
                     </td>
                     <td>{s.points ? `+${fmt(s.points)}` : '—'}</td>
+                    {!gathering && (
+                      <td>{pointsPerAction(s) ? pointsPerAction(s).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—'}</td>
+                    )}
                     <td>
                       <button
                         type="button"
@@ -225,7 +280,8 @@ export default function TierPlan({
                     </td>
                   </tr>,
                   // Other rarities this row's gathers push past a milestone, scored on their own
-                  ...s.side.map((x) => (
+                  // fewest gathers to reach the milestone first
+                  ...[...s.side].sort((a, b) => sideGathers(a) - sideGathers(b)).map((x) => (
                     <tr
                       key={`${s.item}|${s.rarity}|${x.rarity}`}
                       className="static side"
@@ -237,10 +293,13 @@ export default function TierPlan({
                       <td>
                         {fmt(Math.floor(x.from))} → {formatMilestone(x.to)}
                       </td>
-                      <td>—</td>
+                      <td title="Gathers to reach this milestone. They happen on the way to the row above: no extra actions needed">
+                        {gathering && x.chance > 0 ? fmt(sideGathers(x)) : '—'}
+                      </td>
                       <td>—</td>
                       <td />
                       <td>+{fmt(x.points)}</td>
+                      {!gathering && <td />}
                       <td />
                     </tr>
                   )),

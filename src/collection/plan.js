@@ -1,6 +1,7 @@
 import { expectedMultiplier, levelForXp, walk, xpPerAction } from '../core/xp.js'
 import {
   MILESTONES,
+  hasLogItem,
   itemName,
   milestoneReached,
   milestonePoints,
@@ -125,6 +126,8 @@ function gatherStep(job, rarity, collected, index, xp, xpGain, speed, { chances,
       from: have(name),
       to: milestoneReached(have(name) + qty),
       points: pointsBetween(have(name), have(name) + qty, name),
+      // Per-gather chance, to work out the gathers needed to reach `to`
+      chance: chances.find((c) => c.name === name)?.chance ?? 0,
     }))
     .filter((s) => s.points > 0)
   const perItem = xpPerAction(job.xp, expectedMultiplier(chances), xpGain)
@@ -134,6 +137,8 @@ function gatherStep(job, rarity, collected, index, xp, xpGain, speed, { chances,
     to: MILESTONES[index],
     items: Math.ceil(gathers - 1e-9),
     gathers,
+    // Per-gather chance of the planned rarity, for the side rows made when this step is folded
+    chance,
     gained,
     attempts: Math.ceil(run.attempts - 1e-9),
     materials: [],
@@ -144,6 +149,42 @@ function gatherStep(job, rarity, collected, index, xp, xpGain, speed, { chances,
     side,
     sidePoints: side.reduce((sum, s) => sum + s.points, 0),
   }
+}
+
+// Gathering uses no materials, so nothing limits the search except `depth`: the number of
+// steps it plans. Each round takes the next tier earning the most points per gather, counting
+// the other rarities that same step fills along the way.
+function searchGathering({ skill, startXp, xpGain, speed, collection, off, rarities, chances, depth }) {
+  const jobs = JOBS.filter((j) => j.skill === skill && hasLogItem(j) && !off.levels?.includes(j.level))
+  const counts = {}
+  const have = (item, rarity) => counts[key(item, rarity)] ?? collection[item]?.[rarity] ?? 0
+  let xp = startXp
+  const steps = []
+
+  while (steps.length < depth) {
+    const level = levelForXp(xp)
+    let best = null
+    for (const job of jobs) {
+      if (job.level > level) continue
+      const item = itemName(job)
+      for (const rarity of rarities) {
+        const step = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed, {
+          chances,
+          have: (name) => have(item, name),
+        })
+        if (step.done || !step.points) continue
+        const score = (step.points + (step.sidePoints ?? 0)) / Math.max(step.gathers, 1e-9)
+        if (!best || score > best.score) best = { job, item, rarity, step, score }
+      }
+    }
+    if (!best) break
+
+    const { job, item, rarity, step } = best
+    for (const [name, qty] of Object.entries(step.gained)) counts[key(item, name)] = have(item, name) + qty
+    xp += step.xpGained
+    steps.push({ job: job.name, rarity: rarity.name })
+  }
+  return steps
 }
 
 /**
@@ -163,11 +204,16 @@ export function maximisePoints({
   inventory,
   off = {},
   maxSteps = 300,
+  chances,
+  depth = 10,
 }) {
+  const rarities = RARITIES.filter((r) => !off.rarities?.includes(r.name))
+  if (isGathering(skill)) {
+    return searchGathering({ skill, startXp, xpGain, speed, collection, off, rarities, chances, depth })
+  }
   const jobs = JOBS.filter(
     (j) => j.skill === skill && RECIPES[j.name] && !off.levels?.includes(j.level),
   )
-  const rarities = RARITIES.filter((r) => !off.rarities?.includes(r.name))
   const stock = {}
   for (const [item, byRarity] of Object.entries(inventory)) {
     for (const [rarity, qty] of Object.entries(byRarity)) stock[key(item, rarity)] = qty

@@ -50,6 +50,9 @@ export default function CollectionPlanner({ profile, setProfile }) {
   // Item levels and rarities switched off for the search, per skill
   const searchOff = settings.searchOff?.[skill] ?? {}
   const setSearchOff = (next) => set({ searchOff: { ...settings.searchOff, [skill]: next } })
+  // Gathering search depth (steps planned), per skill
+  const searchDepth = settings.searchDepth?.[skill] ?? 10
+  const setSearchDepth = (n) => set({ searchDepth: { ...settings.searchDepth, [skill]: n } })
   const jobLevels = [
     ...new Set(JOBS.filter((j) => j.skill === skill && hasLogItem(j)).map((j) => j.level)),
   ].sort(
@@ -65,11 +68,15 @@ export default function CollectionPlanner({ profile, setProfile }) {
       collection,
       inventory,
       off: searchOff,
+      chances,
+      depth: searchDepth,
     })
     setSteps(best)
     setMaximiseNote(
       best.length
-        ? `Planned ${best.length} steps using only what's in your storage.`
+        ? gathering
+          ? `Planned ${best.length} steps, best points per gather first.`
+          : `Planned ${best.length} steps using only what's in your storage.`
         : `Nothing in your storage completes a ${skill} tier with these settings.`,
     )
   }
@@ -149,9 +156,17 @@ export default function CollectionPlanner({ profile, setProfile }) {
         onRemove={(indices) => setSteps(steps.filter((_, j) => !indices.includes(j)))}
         onClear={() => setSteps([])}
         gathering={gathering}
-        canMaximise={hasInventory && !gathering}
+        canMaximise={gathering || hasInventory}
         onMaximise={maximise}
-        search={{ levels: jobLevels, playerLevel: currentLevel, off: searchOff, onChange: setSearchOff }}
+        search={{
+          levels: jobLevels,
+          playerLevel: currentLevel,
+          off: searchOff,
+          onChange: setSearchOff,
+          gathering,
+          depth: searchDepth,
+          onDepth: setSearchDepth,
+        }}
         note={maximiseNote}
       />
       
