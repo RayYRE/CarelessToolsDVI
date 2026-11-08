@@ -243,6 +243,7 @@ function AllPlanner({ profile, setProfile, settings, set, selector }) {
   const inventory = profile.inventory?.items ?? {}
   const hasInventory = Object.keys(inventory).length > 0
   const searchOff = settings.searchOff?.[ALL] ?? {}
+  const searchDepth = settings.searchDepth?.[ALL] ?? 100
   const jobLevels = [
     ...new Set(JOBS.filter((j) => skills.includes(j.skill) && hasLogItem(j)).map((j) => j.level)),
   ].sort((a, b) => a - b)
@@ -251,7 +252,7 @@ function AllPlanner({ profile, setProfile, settings, set, selector }) {
     if (steps.length && !window.confirm(`Replace your ${steps.length} planned steps?`)) return
     // Skills switched off in Settings are left out of the search, but still run in the plan
     const enabled = Object.fromEntries(Object.entries(perSkill).filter(([s]) => !searchOff.skills?.includes(s)))
-    const best = maximisePointsAll({ skills: enabled, collection, inventory, off: searchOff })
+    const best = maximisePointsAll({ skills: enabled, collection, inventory, off: searchOff, maxSteps: searchDepth })
     setSteps(best)
     setNote(
       best.length
@@ -338,6 +339,8 @@ function AllPlanner({ profile, setProfile, settings, set, selector }) {
           onChange: (next) => set({ searchOff: { ...settings.searchOff, [ALL]: next } }),
           gathering: false,
           skills,
+          depth: searchDepth,
+          onDepth: (n) => set({ searchDepth: { ...settings.searchDepth, [ALL]: n } }),
         }}
         note={note}
       />

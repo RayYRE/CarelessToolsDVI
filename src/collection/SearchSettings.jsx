@@ -37,6 +37,11 @@ export default function SearchSettings({
     const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
     onChange({ ...off, [list]: next })
   }
+  // Gathering has a rank and a depth above the columns; "All" has just a depth
+  const columns = skills ? 3 : 2
+  const showDepth = onDepth && (gathering || skills)
+  const controls = (gathering ? 1 : 0) + (showDepth ? 1 : 0)
+  const maxDepth = gathering ? 100 : 1000
   const offCount = (off.levels?.length ?? 0) + (off.rarities?.length ?? 0) + (off.skills?.length ?? 0)
 
   return (
@@ -55,7 +60,7 @@ export default function SearchSettings({
         <div className="popover" role="dialog" aria-label="Search settings">
           {/* One grid so the controls line up with the columns below: search by over item levels,
               search depth over rarities */}
-          <div className="popover-columns" style={{ gridTemplateColumns: `repeat(${skills ? 3 : 2}, auto)` }}>
+          <div className="popover-columns" style={{ gridTemplateColumns: `repeat(${columns}, auto)` }}>
             {gathering && (
               <label title="What the search picks first: the tier needing the fewest gathers, or the tier with the most points per gather">
                 Search by
@@ -65,19 +70,21 @@ export default function SearchSettings({
                 </select>
               </label>
             )}
-            {gathering && (
-              <label title="Gathering uses no materials, so the search plans about this many rows, by-product rows included">
+            {showDepth && (
+              <label title={gathering ? 'Gathering uses no materials, so the search plans about this many rows, by-product rows included' : 'The most steps the search plans before it stops'}>
                 Search depth (rows)
                 <input
                   type="number"
                   min={1}
-                  max={100}
+                  max={maxDepth}
                   value={depth}
-                  onChange={(e) => onDepth(Math.min(100, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
+                  onChange={(e) => onDepth(Math.min(maxDepth, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
                 />
               </label>
             )}
-            {gathering && skills && <span />}
+            {Array.from({ length: columns - controls }, (_, i) => (
+              <span key={i} />
+            ))}
             {skills && (
               <fieldset>
                 <legend>Skills</legend>
