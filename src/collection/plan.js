@@ -23,7 +23,13 @@ const key = (item, rarity) => `${item}|${rarity}`
  * chances: rarity chances from the player's luck (rarityChances), used by gathering skills
  * Returns the computed steps plus the end state: XP, level, and a lookup for planned counts.
  */
-export function runPlan({ steps, startXp, xpGain, speed, collection, chances }) {
+export function runPlan({ steps, startXp = 0, xpGain, speed, collection, chances, skills }) {
+  // `skills` ({ skill: { startXp, speed, xpGain } }) plans several skills in one go, each with
+  // its own XP; without it everything runs on startXp, xpGain and speed
+  const per = skills
+    ? Object.fromEntries(Object.entries(skills).map(([k, v]) => [k, { ...v, xp: v.startXp }]))
+    : null
+  const xpOf = (sk) => (per ? per[sk].xp : xp)
   const counts = {}
   const have = (item, rarity) => counts[key(item, rarity)] ?? collection[item]?.[rarity] ?? 0
   let xp = startXp
@@ -36,10 +42,10 @@ export function runPlan({ steps, startXp, xpGain, speed, collection, chances }) 
   const rows = steps.map((step) => {
     const job = JOBS.find((j) => j.name === step.job)
     const rarity = RARITIES.find((r) => r.name === step.rarity)
-    if (!job || !rarity) return null
+    if (!job || !rarity || (per && !per[job.skill])) return null
     const item = itemName(job)
-    const levelBefore = levelForXp(xp)
-    let r = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed, {
+    const levelBefore = levelForXp(xpOf(job.skill))
+    let r = tierStep(job, rarity, have(item, rarity.name), xpOf(job.skill), per ? per[job.skill].xpGain : xpGain, per ? per[job.skill].speed : speed, {
       chances,
       have: (name) => have(item, name),
     }, step.to)
@@ -63,7 +69,8 @@ export function runPlan({ steps, startXp, xpGain, speed, collection, chances }) 
       }
     }
     for (const [name, qty] of Object.entries(r.gained)) counts[key(item, name)] = have(item, name) + qty
-    xp += r.xpGained
+    if (per) per[job.skill].xp += r.xpGained
+    else xp += r.xpGained
     seconds += r.seconds
     points += r.points + (r.sidePoints ?? 0)
     if (r.gathers !== undefined) gathered[item] = (gathered[item] ?? 0) + r.gathers
@@ -71,10 +78,11 @@ export function runPlan({ steps, startXp, xpGain, speed, collection, chances }) 
       ...step,
       ...r,
       item,
+      skill: job.skill,
       needLevel: job.level,
       locked: job.level > levelBefore,
       levelBefore,
-      levelAfter: levelForXp(xp),
+      levelAfter: levelForXp(xpOf(job.skill)),
       totalSeconds: seconds,
       // Gathers this item needs in total by the end of this step
       itemGathers: gathered[item],
@@ -82,7 +90,22 @@ export function runPlan({ steps, startXp, xpGain, speed, collection, chances }) 
   })
 
   const kept = rows.filter(Boolean)
-  return { rows: kept, xp, level: levelForXp(xp), seconds, points, have, materials: totalMaterials(kept) }
+  // Several skills: each one's level before and after, instead of a single XP and level
+  const levels = per
+    ? Object.fromEntries(Object.entries(per).map(([k, v]) => [k, { from: levelForXp(v.startXp), to: levelForXp(v.xp) }]))
+    : undefined
+  return {
+    rows: kept,
+    xp,
+    level: levelForXp(xp),
+    levels,
+    xpGained: kept.reduce((sum, r) => sum + r.xpGained, 0),
+    xpFor: xpOf,
+    seconds,
+    points,
+    have,
+    materials: totalMaterials(kept),
+  }
 }
 
 // Materials across every step, merged by material and rarity, largest first
@@ -295,26 +318,36 @@ export function maximisePoints({
   if (isGathering(skill)) {
     return searchGathering({ skill, startXp, xpGain, speed, collection, off, rarities, chances, depth, rank })
   }
-  const jobs = JOBS.filter(
-    (j) => j.skill === skill && RECIPES[j.name] && !off.levels?.includes(j.level),
-  )
+  return searchProcessing({ skills: { [skill]: { startXp, speed, xpGain } }, collection, inventory, off, maxSteps })
+}
+
+// The same search across several processing skills at once, sharing one storage and one plan.
+// skills: { skill: { startXp, speed, xpGain } }. Crafted items go back into storage, so one
+// skill's bars can feed another's crafts.
+export function maximisePointsAll({ skills, collection, inventory, off = {}, maxSteps = 300 }) {
+  return searchProcessing({ skills, collection, inventory, off, maxSteps })
+}
+
+function searchProcessing({ skills, collection, inventory, off = {}, maxSteps }) {
+  const rarities = RARITIES.filter((r) => !off.rarities?.includes(r.name))
+  const jobs = JOBS.filter((j) => skills[j.skill] && RECIPES[j.name] && !off.levels?.includes(j.level))
   const stock = {}
   for (const [item, byRarity] of Object.entries(inventory)) {
     for (const [rarity, qty] of Object.entries(byRarity)) stock[key(item, rarity)] = qty
   }
   const counts = {}
   const have = (item, rarity) => counts[key(item, rarity)] ?? collection[item]?.[rarity] ?? 0
-  let xp = startXp
+  const xps = Object.fromEntries(Object.entries(skills).map(([k, v]) => [k, v.startXp]))
   const steps = []
 
   while (steps.length < maxSteps) {
-    const level = levelForXp(xp)
     let best = null
     for (const job of jobs) {
-      if (job.level > level) continue
+      const { speed, xpGain } = skills[job.skill]
+      if (job.level > levelForXp(xps[job.skill])) continue
       const item = itemName(job)
       for (const rarity of rarities) {
-        const step = tierStep(job, rarity, have(item, rarity.name), xp, xpGain, speed)
+        const step = tierStep(job, rarity, have(item, rarity.name), xps[job.skill], xpGain, speed)
         if (step.done || !step.points) continue
         // Cost = share of each material this uses up; unaffordable steps are skipped
         let cost = 0
@@ -335,7 +368,7 @@ export function maximisePoints({
     for (const m of step.materials) stock[key(m.material, m.rarity)] -= m.quantity
     stock[key(item, rarity.name)] = (stock[key(item, rarity.name)] ?? 0) + step.items
     counts[key(item, rarity.name)] = step.to
-    xp += step.xpGained
+    xps[job.skill] += step.xpGained
     steps.push({ job: job.name, rarity: rarity.name, to: step.to })
   }
   return steps

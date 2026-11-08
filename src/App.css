@@ -108,6 +108,22 @@ a.button {
   small {
     grid-column: 1 / -1;
   }
+
+  &.with-extra {
+    grid-template-columns: 1fr 2fr 1.4fr;
+  }
+}
+
+/* Same size as the skill picker beside it */
+.setup-button {
+  width: 100%;
+  min-height: 38px;
+}
+
+.setup-rows {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
 }
 
 .result {
@@ -572,6 +588,14 @@ table.align-left :is(th, td) {
   text-align: left;
 }
 
+table.align-center :is(th, td) {
+  text-align: center;
+}
+
+table.align-center :is(th, td).left {
+  text-align: left;
+}
+
 .plan-cost {
   margin: 12px 0;
   color: var(--text-h);
@@ -803,6 +827,13 @@ button.sort-header {
   position: relative;
 }
 
+/* Skills, item levels and rarities side by side, wrapping on narrow screens */
+.popover-columns {
+  display: grid;
+  align-items: start;
+  gap: 12px 28px;
+}
+
 .popover {
   position: absolute;
   top: calc(100% + 6px);
@@ -812,6 +843,7 @@ button.sort-header {
   flex-direction: column;
   gap: 12px;
   min-width: 220px;
+  width: max-content;
   max-width: calc(100vw - 32px);
   padding: 12px;
   background: var(--panel-raised);
@@ -865,4 +897,18 @@ tr.dragging {
 
 tr.drop-target {
   box-shadow: inset 0 2px 0 var(--accent, currentColor);
+}
+
+.stat .levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  font-size: 0.9rem;
+}
+
+/* Long material lists wrap instead of widening the whole table */
+td.cost-cell {
+  white-space: normal;
+  min-width: 160px;
+  max-width: 300px;
 }

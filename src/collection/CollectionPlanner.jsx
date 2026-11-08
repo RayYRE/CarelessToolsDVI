@@ -10,7 +10,7 @@ import { JOBS, SKILL_GROUPS, isGathering } from '../game/jobs.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CollectionLog from './CollectionLog.jsx'
 import { RARITIES } from '../game/rarities.js'
-import { expandGatherStep, maximisePoints, runPlan } from './plan.js'
+import { expandGatherStep, maximisePoints, maximisePointsAll, runPlan } from './plan.js'
 import TierPlan from './TierPlan.jsx'
 
 const DEFAULTS = {
@@ -20,9 +20,10 @@ const DEFAULTS = {
 // Stable empty plan so the memo below doesn't rerun every render
 const NO_STEPS = []
 
-export default function CollectionPlanner({ profile, setProfile }) {
-  const [settings, set] = usePersistentState('collection-planner', DEFAULTS)
-  const { skill, logGroups, plans } = settings
+// One skill's controls, tier plan and collection log. `selector` is the skill picker, shown in
+// its controls when it is the only skill on the page; `heading` names it when several are stacked.
+function SkillPlanner({ skill, profile, setProfile, settings, set, selector, heading }) {
+  const { logGroups, plans } = settings
   const { skillXp, speed, collection, luck, rareFind } = profile
   // XP gain that applies to this skill (stats total minus bonuses for other skill types)
   const xpGain = skillXpGain(profile, skill)
@@ -87,15 +88,9 @@ export default function CollectionPlanner({ profile, setProfile }) {
 
   return (
     <>
+      {heading && <h2 className="skill-heading">{heading}</h2>}
       <section className="panel controls">
-        <IconSelect
-          label="Skill"
-          value={skill}
-          onChange={(s) => set({ skill: s })}
-          options={Object.entries(SKILL_GROUPS).flatMap(([group, skills]) =>
-            skills.map((s) => ({ value: s, label: s, icon: skillIcon(s), group })),
-          )}
-        />
+        {selector}
         <label>
           XP gain (%)
           <input
@@ -222,4 +217,175 @@ export default function CollectionPlanner({ profile, setProfile }) {
 
     </>
   )
+}
+
+// All: one tier plan and one search across every processing skill, with the setup (XP gain, each
+// skill's speed and XP) behind a button and each skill's collection log below.
+const ALL = 'All'
+
+function AllPlanner({ profile, setProfile, settings, set, selector }) {
+  const skills = SKILL_GROUPS.Processing
+  const { skillXp, speed, collection } = profile
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [note, setNote] = useState(null)
+  const gains = Object.fromEntries(skills.map((s) => [s, skillXpGain(profile, s)]))
+  const levels = Object.fromEntries(skills.map((s) => [s, levelForXp(skillXp[s] ?? 0)]))
+
+  const steps = settings.plans?.[ALL] ?? NO_STEPS
+  const setSteps = (next) => set({ plans: { ...settings.plans, [ALL]: next } })
+  const perSkill = useMemo(
+    () => Object.fromEntries(skills.map((s) => [s, { startXp: skillXp[s] ?? 0, speed: speed[s] ?? 0, xpGain: gains[s] }])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [skillXp, speed, profile.xpGain, profile.xpGainSources],
+  )
+  const plan = useMemo(() => runPlan({ steps, collection, skills: perSkill }), [steps, collection, perSkill])
+
+  const inventory = profile.inventory?.items ?? {}
+  const hasInventory = Object.keys(inventory).length > 0
+  const searchOff = settings.searchOff?.[ALL] ?? {}
+  const searchDepth = settings.searchDepth?.[ALL] ?? 100
+  const jobLevels = [
+    ...new Set(JOBS.filter((j) => skills.includes(j.skill) && hasLogItem(j)).map((j) => j.level)),
+  ].sort((a, b) => a - b)
+
+  const maximise = () => {
+    if (steps.length && !window.confirm(`Replace your ${steps.length} planned steps?`)) return
+    // Skills switched off in Settings are left out of the search, but still run in the plan
+    const enabled = Object.fromEntries(Object.entries(perSkill).filter(([s]) => !searchOff.skills?.includes(s)))
+    const best = maximisePointsAll({ skills: enabled, collection, inventory, off: searchOff, maxSteps: searchDepth })
+    setSteps(best)
+    setNote(
+      best.length
+        ? `Planned ${best.length} steps across all processing skills using only what's in your storage.`
+        : 'Nothing in your storage completes a tier with these settings.',
+    )
+  }
+  const planStep = (job, rarity) => {
+    const j = JOBS.find((x) => x.name === job)
+    const to = MILESTONES[nextMilestoneIndex(plan.have(itemName(j), rarity))]
+    setSteps([...steps, { job, rarity, to }])
+  }
+  const unplanStep = (job, rarity) => setSteps(steps.filter((s) => s.job !== job || s.rarity !== rarity))
+
+  return (
+    <>
+      <section className="panel controls">
+        {selector}
+        <div className="field">
+          <span aria-hidden="true">&nbsp;</span>
+          <button
+            type="button"
+            className={`chip setup-button${setupOpen ? ' active' : ''}`}
+            aria-expanded={setupOpen}
+            onClick={() => setSetupOpen(!setupOpen)}
+          >
+            Setup
+          </button>
+        </div>
+      </section>
+
+      {setupOpen && (
+        <section className="panel">
+          <h2>Setup</h2>
+          <div className="controls">
+            <label>
+              XP gain (%)
+              <input type="number" value={profile.xpGain} onChange={(e) => setProfile({ xpGain: num(e.target.value) })} />
+              {hasXpSources(profile) || !profile.xpGain ? (
+                <small className="hint-inline">Applies to every skill below, minus any source that does not apply to it</small>
+              ) : (
+                <small className="hint-inline warn">
+                  Sources not imported, may be inaccurate. <a href="#import">Fix</a>
+                </small>
+              )}
+            </label>
+          </div>
+          <div className="setup-rows">
+            {skills.map((s) => (
+              <XpInput
+                key={s}
+                label={`Current ${s}`}
+                xp={skillXp[s] ?? 0}
+                onChange={(v) => setProfile({ skillXp: { ...skillXp, [s]: v } })}
+              >
+                <label>
+                  Speed (%)
+                  <input
+                    type="number"
+                    min={0}
+                    value={speed[s] ?? 0}
+                    onChange={(e) => setProfile({ speed: { ...speed, [s]: num(e.target.value) } })}
+                  />
+                </label>
+              </XpInput>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <TierPlan
+        plan={plan}
+        startLevel={0}
+        onRemove={(indices) => setSteps(steps.filter((_, j) => !indices.includes(j)))}
+        onClear={() => setSteps([])}
+        onReorder={(order) => setSteps(order.map((i) => steps[i]))}
+        gathering={false}
+        canMaximise={hasInventory}
+        onMaximise={maximise}
+        search={{
+          levels: jobLevels,
+          playerLevel: Math.max(...Object.values(levels)),
+          off: searchOff,
+          onChange: (next) => set({ searchOff: { ...settings.searchOff, [ALL]: next } }),
+          gathering: false,
+          skills,
+          depth: searchDepth,
+          onDepth: (n) => set({ searchDepth: { ...settings.searchDepth, [ALL]: n } }),
+        }}
+        note={note}
+      />
+
+      {!Object.keys(collection).length && (
+        <p className="hint">
+          No collection imported yet. <a href="#import">Import your character JSON</a> to see your
+          real collection log.
+        </p>
+      )}
+
+      {skills.map((s) => (
+        <CollectionLog
+          key={s}
+          skill={s}
+          level={levels[s]}
+          collection={collection}
+          shown={settings.logGroups?.[s] ?? {}}
+          onShown={(groups) => set({ logGroups: { ...settings.logGroups, [s]: groups } })}
+          plan={plan}
+          xpGain={gains[s]}
+          speed={speed[s] ?? 0}
+          onPlan={planStep}
+          onUnplan={unplanStep}
+        />
+      ))}
+    </>
+  )
+}
+
+export default function CollectionPlanner({ profile, setProfile }) {
+  const [settings, set] = usePersistentState('collection-planner', DEFAULTS)
+  const { skill } = settings
+  const selector = (
+    <IconSelect
+      label="Skill"
+      value={skill}
+      onChange={(s) => set({ skill: s })}
+      options={Object.entries(SKILL_GROUPS).flatMap(([group, skills]) => [
+        ...(group === 'Processing' ? [{ value: ALL, label: 'All', group }] : []),
+        ...skills.map((s) => ({ value: s, label: s, icon: skillIcon(s), group })),
+      ])}
+    />
+  )
+  const common = { profile, setProfile, settings, set, selector }
+  if (skill === ALL) return <AllPlanner {...common} />
+  return <SkillPlanner key={skill} skill={skill} {...common} />
 }

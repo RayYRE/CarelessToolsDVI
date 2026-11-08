@@ -194,16 +194,37 @@ export default function TierPlan({
       ) : (
         <>
           <div className="result">
-            <div className="stat">
-              <span>Level</span>
-              <strong>
-                {startLevel} → {plan.level}
-              </strong>
-            </div>
-            <div className="stat">
-              <span>XP after tier plan</span>
-              <strong>{fmt(plan.xp)}</strong>
-            </div>
+            {plan.levels ? (
+              <>
+                <div className="stat">
+                  <span>Levels</span>
+                  <strong className="levels">
+                    {Object.entries(plan.levels).map(([skill, l]) => (
+                      <span key={skill}>
+                        {skill} {l.from === l.to ? l.to : `${l.from} → ${l.to}`}
+                      </span>
+                    ))}
+                  </strong>
+                </div>
+                <div className="stat">
+                  <span>XP gained</span>
+                  <strong>{fmt(plan.xpGained)}</strong>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat">
+                  <span>Level</span>
+                  <strong>
+                    {startLevel} → {plan.level}
+                  </strong>
+                </div>
+                <div className="stat">
+                  <span>XP after tier plan</span>
+                  <strong>{fmt(plan.xp)}</strong>
+                </div>
+              </>
+            )}
             <div className="stat">
               <span>{gathering ? 'Expected gathers' : 'Items to craft'}</span>
               <strong>{fmt(gathering ? totalGathers : rows.reduce((sum, s) => sum + s.items, 0))}</strong>
@@ -217,12 +238,12 @@ export default function TierPlan({
             <span>Total cost</span> <Materials list={plan.materials} />
           </p>
           <div className="table-wrap">
-            <table className="align-left">
+            <table className="align-center">
               <thead>
                 <tr>
                   <th aria-label="Drag to reorder" />
                   <IndexHeader {...sortProps} />
-                  <th>Item</th>
+                  <th className="left">Item</th>
                   <SortHeader label="Rarity" column="rarity" {...sortProps} />
                   <SortHeader label="Tier" column="tier" {...sortProps} />
                   <SortHeader
@@ -276,11 +297,16 @@ export default function TierPlan({
                       </span>
                     </td>
                     <td>{s.indices[0] + 1}</td>
-                    <td>
+                    <td className="left">
                       <span className="with-icon">
                         <Icon src={iconFor(s.item)} />
                         {s.item}
                       </span>
+                      {plan.levels && (
+                        <div>
+                          <small className="cat">{s.skill}</small>
+                        </div>
+                      )}
                       {s.locked && <small className="hint-inline warn"> needs level {s.needLevel}</small>}
                     </td>
                     <td className={`rarity-${s.rarity.toLowerCase()}`}>{s.rarity}</td>
@@ -306,7 +332,7 @@ export default function TierPlan({
                       )}
                     </td>
                     {!gathering && (
-                      <td>
+                      <td className="cost-cell left">
                         <Materials list={s.materials} />
                       </td>
                     )}
