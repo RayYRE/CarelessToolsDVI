@@ -59,7 +59,7 @@ export default function CollectionLog({
     const counts = collection[item] ?? {}
     const cells = RARITIES.map((r) => {
       // The next tier starts from wherever the plan so far leaves this cell
-      const next = tierStep(j, r, plan.have(item, r.name), plan.xp, xpGain, speed, {
+      const next = tierStep(j, r, plan.have(item, r.name), plan.xpFor(skill), xpGain, speed, {
         chances,
         have: (name) => plan.have(item, name),
       })
@@ -148,7 +148,7 @@ export default function CollectionLog({
                         ? `${row.item} (${r.name}): every tier done`
                         : `Plan ${row.item} (${r.name}) to ${formatMilestone(next.to)}: ` +
                           `${gathering ? '≈' : ''}${fmt(next.items)} ${gathering ? 'gathers' : 'items'}` +
-                          ` → level ${levelForXp(plan.xp + next.xpGained)}` +
+                          ` → level ${levelForXp(plan.xpFor(skill) + next.xpGained)}` +
                           (gathering && next.points
                             ? `, +${fmt(next.points)} pts` +
                               (next.sidePoints ? ` (+${fmt(next.sidePoints)} from other rarities)` : '')

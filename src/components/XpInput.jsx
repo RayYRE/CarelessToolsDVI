@@ -3,10 +3,11 @@ import { clampLevel, levelForXp, xpForLevel } from '../core/xp.js'
 import { ESTIMATED_LEVELS, MAX_LEVEL } from '../game/levels.js'
 
 // Level + XP input pair: editing the level snaps XP to that level's start
-export default function XpInput({ label, xp, onChange }) {
+// `children` (optional) adds a further field to the same row, e.g. a speed input
+export default function XpInput({ label, xp, onChange, children }) {
   const level = levelForXp(xp)
   return (
-    <fieldset className="xp-input">
+    <fieldset className={`xp-input${children ? ' with-extra' : ''}`}>
       <legend>{label}</legend>
       <label>
         Level
@@ -27,6 +28,7 @@ export default function XpInput({ label, xp, onChange }) {
           onChange={(e) => onChange(Math.max(0, num(e.target.value)))}
         />
       </label>
+      {children}
       {ESTIMATED_LEVELS.has(level) && <small className="warn">Level {level} XP is estimated</small>}
     </fieldset>
   )
