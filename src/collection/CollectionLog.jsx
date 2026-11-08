@@ -1,9 +1,16 @@
 import Icon from '../components/Icon.jsx'
 import { fmt } from '../core/format.js'
 import { levelForXp } from '../core/xp.js'
-import { MILESTONES, formatMilestone, itemName, milestonePoints } from '../game/collection.js'
+import {
+  MILESTONES,
+  formatMilestone,
+  hasLogItem,
+  itemName,
+  milestoneReached,
+  milestonePoints,
+} from '../game/collection.js'
 import { jobIcon, skillIcon } from '../game/icons.js'
-import { JOBS } from '../game/jobs.js'
+import { JOBS, isGathering } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
 import { tierStep } from './plan.js'
 
@@ -36,10 +43,12 @@ export default function CollectionLog({
   plan,
   xpGain,
   speed,
+  chances,
   onPlan,
   onUnplan,
 }) {
-  const jobs = JOBS.filter((j) => j.skill === skill)
+  const jobs = JOBS.filter((j) => j.skill === skill && hasLogItem(j))
+  const gathering = isGathering(skill)
   // Level requirement groups, each toggled on its own. Unset groups are shown if unlocked.
   const groups = [...new Set(jobs.map((j) => j.level))].sort((a, b) => a - b)
   const isShown = (g) => shown[g] ?? g <= level
@@ -50,15 +59,21 @@ export default function CollectionLog({
     const counts = collection[item] ?? {}
     const cells = RARITIES.map((r) => {
       // The next tier starts from wherever the plan so far leaves this cell
-      const next = tierStep(j, r, plan.have(item, r.name), plan.xp, xpGain, speed)
+      const next = tierStep(j, r, plan.have(item, r.name), plan.xp, xpGain, speed, {
+        chances,
+        have: (name) => plan.have(item, name),
+      })
       const planned = plan.rows.filter((s) => s.job === j.name && s.rarity === r.name).length
+      const collected = counts[r.name] ?? 0
+      // Tier this cell reaches once every planned step is done. Gathering also fills the
+      // rarities it didn't target, so those cells can move up a tier without being planned.
+      const target = milestoneReached(plan.have(item, r.name))
       return {
         r,
         ...rarityProgress(counts[r.name] ?? 0, r.name),
         next,
         planned,
-        // Tier this cell reaches once every planned step is done
-        target: plan.have(item, r.name),
+        target: target > milestoneReached(collected) ? target : null,
       }
     })
     return {
@@ -108,6 +123,8 @@ export default function CollectionLog({
         Showing {visible.length} of {jobs.length} items. Toggle level groups to show or hide them.
         Click a rarity to plan it to its next tier; hover for the items needed and the level
         you&apos;d reach.
+        {gathering &&
+          ' Gathering rolls rarity with your luck, so counts are averages and the other rarities fill up along the way.'}
       </p>
       <ul className="log">
         {rows.map((row) => (
@@ -125,10 +142,17 @@ export default function CollectionLog({
                     className={`log-cell rarity-${r.name.toLowerCase()}${planned ? ' planned' : ''}`}
                     disabled={next.done}
                     title={
-                      next.done
+                      next.impossible
+                        ? `${row.item} (${r.name}): never rolls with your luck`
+                        : next.done
                         ? `${row.item} (${r.name}): every tier done`
                         : `Plan ${row.item} (${r.name}) to ${formatMilestone(next.to)}: ` +
-                          `${fmt(next.items)} items → level ${levelForXp(plan.xp + next.xpGained)}` +
+                          `${gathering ? '≈' : ''}${fmt(next.items)} ${gathering ? 'gathers' : 'items'}` +
+                          ` → level ${levelForXp(plan.xp + next.xpGained)}` +
+                          (gathering && next.points
+                            ? `, +${fmt(next.points)} pts` +
+                              (next.sidePoints ? ` (+${fmt(next.sidePoints)} from other rarities)` : '')
+                            : '') +
                           (next.materials.length
                             ? `\nCost: ${next.materials
                                 .map((m) => `${fmt(m.quantity)} ${m.rarity === 'Common' ? '' : `${m.rarity} `}${m.material}`)
@@ -140,7 +164,7 @@ export default function CollectionLog({
                     <span className="log-letter">{r.name[0]}</span>
                     <span className="log-count">
                       {label}
-                      {planned > 0 && <b> → {formatMilestone(target)}</b>}
+                      {target !== null && <b> → {formatMilestone(target)}</b>}
                     </span>
                     <span className="log-bar">
                       <i style={{ width: `${Math.round(fill * 100)}%` }} />

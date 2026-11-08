@@ -14,6 +14,32 @@ export const nextMilestoneIndex = (collected) => MILESTONES.findIndex((m) => m >
 
 export const formatMilestone = (n) => (n >= 1e6 ? `${n / 1e6}M` : n >= 1e3 ? `${n / 1e3}k` : `${n}`)
 
+// Thieving cloth jobs and the bolt each one steals
+const BOLTS = {
+  'Linen line': 'Homespun bolt',
+  'Silk cart': 'Silk bolt',
+  'Gilded loom': 'Gilded bolt',
+  'Reliquary vestry': 'Voidweave bolt',
+}
+
 // Name of the item a job produces, as it appears in the collection log
-export const itemName = (job) =>
-  job.skill === 'Cooking' ? job.name.replace(/^Cook /, 'Cooked ') : job.name
+export function itemName(job) {
+  if (job.skill === 'Cooking') return job.name.replace(/^Cook /, 'Cooked ')
+  if (job.skill === 'Woodcutting') return job.name === 'Tree' ? 'Logs' : `${job.name} logs`
+  return BOLTS[job.name] ?? job.name
+}
+
+// Highest milestone at or below `count` (0 if none): the tier a count has reached
+export const milestoneReached = (count) => MILESTONES.findLast((m) => m <= count) ?? 0
+
+// Jobs with their own collection log entry. Thieving stalls pay coins, not a logged item.
+export const hasLogItem = (job) => !job.stall
+
+// Points from every milestone passed going from `before` to `after` collected
+export function pointsBetween(before, after, rarityName) {
+  let points = 0
+  MILESTONES.forEach((m, i) => {
+    if (before < m && after >= m) points += milestonePoints(i, rarityName)
+  })
+  return points
+}

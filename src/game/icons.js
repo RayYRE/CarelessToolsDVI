@@ -31,7 +31,4 @@ export const iconFor = (name) => ITEMS[normalize(name)]
 export const skillIcon = (skill) => SKILLS[normalize(`skill ${skill}`)]
 
 // Icon for what a job produces: the crafted item, or the gathered resource
-export function jobIcon(job) {
-  if (job.skill === 'Woodcutting') return iconFor(job.name === 'Tree' ? 'Logs' : `${job.name} logs`)
-  return iconFor(itemName(job))
-}
+export const jobIcon = (job) => iconFor(itemName(job))
