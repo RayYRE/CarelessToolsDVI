@@ -11,7 +11,10 @@ import SearchSettings from './SearchSettings.jsx'
 const SORT_VALUES = {
   rarity: (s) => RARITIES.findIndex((r) => r.name === s.rarity),
   tier: (s) => s.to,
+  index: (s) => s.indices[0],
   points: (s) => s.points,
+  // What the Actions cell shows: gathers to reach a by-product's tier, else the row's count
+  actions: (s) => (s.byProduct ? s.byGathers : (s.itemGathers ?? s.items)),
   perAction: (s) => pointsPerAction(s),
 }
 
@@ -27,14 +30,30 @@ const pointsPerAction = (s) =>
 
 
 // Column heading that sorts on click: highest first, then lowest first, then plan order
-function SortHeader({ label, column, sort, onSort }) {
+function SortHeader({ label, column, sort, onSort, title }) {
   const active = sort?.column === column
   const next = !active ? { column, dir: -1 } : sort.dir === -1 ? { column, dir: 1 } : null
   return (
-    <th aria-sort={active ? (sort.dir === -1 ? 'descending' : 'ascending') : 'none'}>
+    <th title={title} aria-sort={active ? (sort.dir === -1 ? 'descending' : 'ascending') : 'none'}>
       <button type="button" className="sort-header" onClick={() => onSort(next)}>
         {label}
         {active && (sort.dir === -1 ? ' ↓' : ' ↑')}
+      </button>
+    </th>
+  )
+}
+
+// The # heading: plan order (shown ↑, the default for gathering) or reversed (↓). Clicking it
+// from any other sort goes to plan order first, then toggles.
+function IndexHeader({ sort, onSort }) {
+  const reversed = sort?.column === 'index'
+  const inOrder = sort === null
+  const next = inOrder ? { column: 'index', dir: -1 } : null
+  return (
+    <th aria-sort={reversed ? 'descending' : inOrder ? 'ascending' : 'none'}>
+      <button type="button" className="sort-header" title="Plan order" onClick={() => onSort(next)}>
+        #{inOrder && ' ↑'}
+        {reversed && ' ↓'}
       </button>
     </th>
   )
@@ -202,17 +221,20 @@ export default function TierPlan({
               <thead>
                 <tr>
                   <th aria-label="Drag to reorder" />
-                  <th>#</th>
+                  <IndexHeader {...sortProps} />
                   <th>Item</th>
                   <SortHeader label="Rarity" column="rarity" {...sortProps} />
                   <SortHeader label="Tier" column="tier" {...sortProps} />
-                  {gathering ? (
-                    <th title="Gathers of this item needed by the end of this row. All rarities come from the same gathers, so rows overlap instead of adding up.">
-                      Actions (running total)
-                    </th>
-                  ) : (
-                    <th>Actions</th>
-                  )}
+                  <SortHeader
+                    label={gathering ? 'Actions (running total)' : 'Actions'}
+                    column="actions"
+                    title={
+                      gathering
+                        ? 'Gathers of this item needed by the end of this row. All rarities come from the same gathers, so rows overlap instead of adding up.'
+                        : undefined
+                    }
+                    {...sortProps}
+                  />
                   {!gathering && <th>Cost</th>}
                   <th>Level after</th>
                   <SortHeader label="Points" column="points" {...sortProps} />
