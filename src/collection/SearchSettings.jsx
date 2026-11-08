@@ -4,7 +4,7 @@ import { RARITIES } from '../game/rarities.js'
 // Settings button with a pop-out for the greedy search: which item levels and rarities it may
 // plan. `off` is { levels: [15, 30], rarities: ['Legendary'] }, listing what's switched off.
 // Gathering also gets a depth: how many steps the search plans (nothing else limits it there)
-export default function SearchSettings({ levels, playerLevel, off, onChange, gathering, depth, onDepth }) {
+export default function SearchSettings({ levels, playerLevel, off, onChange, gathering, depth, onDepth, rank, onRank }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -43,8 +43,17 @@ export default function SearchSettings({ levels, playerLevel, off, onChange, gat
       {open && (
         <div className="popover" role="dialog" aria-label="Search settings">
           {gathering && (
-            <label title="Gathering uses no materials, so the search plans this many steps, best points per gather first">
-              Search depth (steps)
+            <label title="What the search picks first: the tier needing the fewest gathers, or the tier with the most points per gather">
+              Search by
+              <select value={rank} onChange={(e) => onRank(e.target.value)}>
+                <option value="gathers">Lowest gathers</option>
+                <option value="points">Points / action</option>
+              </select>
+            </label>
+          )}
+          {gathering && (
+            <label title="Gathering uses no materials, so the search plans about this many rows, by-product rows included">
+              Search depth (rows)
               <input
                 type="number"
                 min={1}

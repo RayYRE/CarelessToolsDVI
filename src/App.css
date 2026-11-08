@@ -231,6 +231,11 @@ tbody tr {
     opacity: 0.75;
     font-size: 0.9em;
   }
+
+  /* Gathering: rows that come free with the gathers of a row above */
+  &.by-product {
+    opacity: 0.5;
+  }
 }
 
 .cat {
@@ -841,4 +846,23 @@ label.check {
   gap: 6px;
   color: var(--text);
   cursor: pointer;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--muted);
+  user-select: none;
+  padding: 0 4px;
+
+  &:hover {
+    color: var(--text-h);
+  }
+}
+
+tr.dragging {
+  opacity: 0.4;
+}
+
+tr.drop-target {
+  box-shadow: inset 0 2px 0 var(--accent, currentColor);
 }

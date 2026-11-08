@@ -4,12 +4,13 @@ import XpInput from '../components/XpInput.jsx'
 import { num } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
 import { levelForXp, oddsMultiplier, rarityChances } from '../core/xp.js'
-import { hasLogItem } from '../game/collection.js'
+import { MILESTONES, hasLogItem, itemName, nextMilestoneIndex } from '../game/collection.js'
 import { skillIcon } from '../game/icons.js'
 import { JOBS, SKILL_GROUPS, isGathering } from '../game/jobs.js'
 import { hasXpSources, skillXpGain } from '../profile/xpGain.js'
 import CollectionLog from './CollectionLog.jsx'
-import { maximisePoints, runPlan } from './plan.js'
+import { RARITIES } from '../game/rarities.js'
+import { expandGatherStep, maximisePoints, runPlan } from './plan.js'
 import TierPlan from './TierPlan.jsx'
 
 const DEFAULTS = {
@@ -51,6 +52,8 @@ export default function CollectionPlanner({ profile, setProfile }) {
   const searchOff = settings.searchOff?.[skill] ?? {}
   const setSearchOff = (next) => set({ searchOff: { ...settings.searchOff, [skill]: next } })
   // Gathering search depth (steps planned), per skill
+  const searchRank = settings.searchRank?.[skill] ?? 'points'
+  const setSearchRank = (r) => set({ searchRank: { ...settings.searchRank, [skill]: r } })
   const searchDepth = settings.searchDepth?.[skill] ?? 10
   const setSearchDepth = (n) => set({ searchDepth: { ...settings.searchDepth, [skill]: n } })
   const jobLevels = [
@@ -70,12 +73,13 @@ export default function CollectionPlanner({ profile, setProfile }) {
       off: searchOff,
       chances,
       depth: searchDepth,
+      rank: searchRank,
     })
     setSteps(best)
     setMaximiseNote(
       best.length
         ? gathering
-          ? `Planned ${best.length} steps, best points per gather first.`
+          ? `Planned ${best.length} steps, ${searchRank === 'points' ? 'most points per action' : 'fewest gathers'} first.`
           : `Planned ${best.length} steps using only what's in your storage.`
         : `Nothing in your storage completes a ${skill} tier with these settings.`,
     )
@@ -155,6 +159,7 @@ export default function CollectionPlanner({ profile, setProfile }) {
         startLevel={currentLevel}
         onRemove={(indices) => setSteps(steps.filter((_, j) => !indices.includes(j)))}
         onClear={() => setSteps([])}
+        onReorder={(order) => setSteps(order.map((i) => steps[i]))}
         gathering={gathering}
         canMaximise={gathering || hasInventory}
         onMaximise={maximise}
@@ -166,6 +171,8 @@ export default function CollectionPlanner({ profile, setProfile }) {
           gathering,
           depth: searchDepth,
           onDepth: setSearchDepth,
+          rank: searchRank,
+          onRank: setSearchRank,
         }}
         note={maximiseNote}
       />
@@ -187,7 +194,27 @@ export default function CollectionPlanner({ profile, setProfile }) {
         xpGain={xpGain}
         speed={skillSpeed}
         chances={chances}
-        onPlan={(job, rarity) => setSteps([...steps, { job, rarity }])}
+        // The step is pinned to the tier it aims for now, so reordering never changes it
+        onPlan={(job, rarity) => {
+          const j = JOBS.find((x) => x.name === job)
+          const next = MILESTONES[nextMilestoneIndex(plan.have(itemName(j), rarity))]
+          if (gathering) {
+            // Same as Calculate points: the other rarities this tier fills come first as steps
+            const { steps: added } = expandGatherStep({
+              job: j,
+              rarity: RARITIES.find((r) => r.name === rarity),
+              rarities: RARITIES,
+              chances,
+              xpGain,
+              speed: skillSpeed,
+              have: plan.have,
+              xp: plan.xp,
+            })
+            setSteps([...steps, ...added])
+            return
+          }
+          setSteps([...steps, { job, rarity, to: next }])
+        }}
         onUnplan={(job, rarity) =>
           setSteps(steps.filter((s) => s.job !== job || s.rarity !== rarity))
         }
