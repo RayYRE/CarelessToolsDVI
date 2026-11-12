@@ -1006,3 +1006,14 @@ tr.detail-row > td {
     font-weight: 600;
   }
 }
+
+/* Profit green, loss red (td.strong-cell would otherwise win on specificity) */
+.profit,
+td.strong-cell.profit {
+  color: var(--rarity-uncommon);
+}
+
+.loss,
+td.strong-cell.loss {
+  color: var(--warn);
+}

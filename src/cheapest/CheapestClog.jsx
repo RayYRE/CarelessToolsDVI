@@ -3,7 +3,7 @@ import Icon from '../components/Icon.jsx'
 import IconSelect from '../components/IconSelect.jsx'
 import { fmt } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
-import { formatMilestone } from '../game/collection.js'
+import { MILESTONES, formatMilestone } from '../game/collection.js'
 import { iconFor, skillIcon } from '../game/icons.js'
 import { SKILL_GROUPS } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
@@ -42,6 +42,9 @@ function Materials({ parts, priceLabel }) {
     </span>
   ))
 }
+
+// Green for a profit, red for a loss
+const tone = (n) => (n > 0 ? 'profit' : n < 0 ? 'loss' : undefined)
 
 // One line of a detail card: a label and a value
 const Line = ({ label, children, strong }) => (
@@ -120,12 +123,18 @@ function Detail({ r, selling, sellInfo, modeInfo }) {
 
       <section className="detail-card">
         <h3>Result</h3>
-        <Line label={selling ? 'Net cost' : 'Cost'} strong>
-          {fmt(r.net)}
-        </Line>
+        {selling ? (
+          <Line label="Profit" strong>
+            <span className={tone(r.profit)}>{fmt(r.profit)}</span>
+          </Line>
+        ) : (
+          <Line label="Cost" strong>
+            {fmt(r.cost)}
+          </Line>
+        )}
         <Line label="Points">{r.points}</Line>
-        <Line label="Coins / point" strong>
-          {fmt(r.perPoint)}
+        <Line label="Profit / point" strong>
+          <span className={tone(r.perPoint)}>{fmt(r.perPoint)}</span>
         </Line>
         <Line label="Actions">{fmt(r.attempts)}</Line>
         <Line label="XP gained">{fmt(r.xpGained)}</Line>
@@ -236,8 +245,8 @@ function MarketSettings({ mode, craft, sell, off, onChange }) {
 // Draft: the next collection log tiers you could craft, cheapest coins per point first,
 // priced from the market prices the userscript captures (Import tab).
 export default function CheapestClog({ profile }) {
-  const [settings, set] = usePersistentState('cheapest-clog', { skill: 'All', mode: 'ask', craft: 'cheapest', sell: 'bid', off: [], hidden: [] })
-  const { skill, mode, craft, sell, off, hidden } = settings
+  const [settings, set] = usePersistentState('cheapest-clog', { skill: 'All', mode: 'ask', craft: 'cheapest', sell: 'bid', off: [], hidden: [], upTo: null })
+  const { skill, mode, craft, sell, off, hidden, upTo } = settings
   const rarities = useMemo(() => RARITIES.filter((r) => !off.includes(r.name)), [off])
   const setSkill = (s) => set({ skill: s })
   // Rows opened to show their cost details
@@ -267,8 +276,8 @@ export default function CheapestClog({ profile }) {
   const sellInfo = SELL_MODES.find((m) => m.id === sell) ?? SELL_MODES[0]
 
   const rows = useMemo(
-    () => (hasPrices && !missingAverage ? cheapestSteps({ profile: { ...profile, prices }, mode, craft, sell, rarities }) : []),
-    [profile, prices, hasPrices, mode, craft, sell, rarities, missingAverage],
+    () => (hasPrices && !missingAverage ? cheapestSteps({ profile: { ...profile, prices }, mode, craft, sell, upTo, rarities }) : []),
+    [profile, prices, hasPrices, mode, craft, sell, upTo, rarities, missingAverage],
   )
   // Rows removed with the X, remembered per tier so the next tier of an item still shows up
   const rowKey = (r) => `${r.job}|${r.rarity}|${r.to}`
@@ -300,6 +309,20 @@ export default function CheapestClog({ profile }) {
             ...SKILL_GROUPS.Processing.map((s) => ({ value: s, label: s, icon: skillIcon(s) })),
           ]}
         />
+        <label title="List every tier of each item up to this collected count, each as its own row">
+          Go up to
+          <select
+            value={upTo ?? ''}
+            onChange={(e) => set({ upTo: e.target.value === '' ? null : Number(e.target.value) })}
+          >
+            <option value="">Next tier only</option>
+            {MILESTONES.slice(1).map((m) => (
+              <option key={m} value={m}>
+                {formatMilestone(m)}
+              </option>
+            ))}
+          </select>
+        </label>
       </section>
 
       <section className="panel">
@@ -326,8 +349,8 @@ export default function CheapestClog({ profile }) {
           ({modeInfo.hint.toLowerCase()}); {craftInfo.hint.toLowerCase()}. ⓘ marks a material with no market
           price at this setting, costed at its craft price.
           {selling
-            ? ` Crafted items are sold at the ${sellInfo.label.toLowerCase()} price after the ${(prices.taxBp ?? MARKET_FEE_BP) / 100}% market fee, and coins / point is the cost less the sale.`
-            : ' Selling is off: coins / point is just the cost of the materials.'}
+            ? ` Crafted items are sold at the ${sellInfo.label.toLowerCase()} price after the ${(prices.taxBp ?? MARKET_FEE_BP) / 100}% market fee. Profit is the sale minus the materials' cost, and profit / point divides that by the points.`
+            : " Selling is off, so profit / point is just the materials' cost per point, as a loss."}
           {missingAverage && ' The averages come from the price feed, which has not loaded.'} Gathering is not
           priced yet.
         </p>
@@ -339,8 +362,8 @@ export default function CheapestClog({ profile }) {
                 <th>Item</th>
                 <th>Tier</th>
                 <th>Points</th>
-                <th>{selling ? 'Net cost' : 'Cost'}</th>
-                <th>Coins / point</th>
+                <th>{selling ? 'Profit' : 'Cost'}</th>
+                <th>Profit / point</th>
                 <th title="Crafting attempts the step takes, burned or failed ones included">Actions</th>
                 <th>Materials</th>
                 <th aria-label="Remove" />
@@ -348,7 +371,7 @@ export default function CheapestClog({ profile }) {
             </thead>
             <tbody>
               {shown.map((r) => {
-                const key = `${r.job}|${r.rarity}`
+                const key = rowKey(r)
                 const isOpen = open.has(key)
                 return (
                   <Fragment key={key}>
@@ -385,9 +408,8 @@ export default function CheapestClog({ profile }) {
                       <td>
                         {selling ? (
                           <div className="net-cell">
-                            <strong>{fmt(r.net)}</strong>
+                            <strong className={tone(r.profit)}>{fmt(r.profit)}</strong>
                             <small>
-                              {fmt(r.cost)} −{' '}
                               {r.noSale ? (
                                 <span
                                   className="price-flag"
@@ -399,14 +421,15 @@ export default function CheapestClog({ profile }) {
                                 </span>
                               ) : (
                                 fmt(r.revenue)
-                              )}
+                              )}{' '}
+                              − {fmt(r.cost)}
                             </small>
                           </div>
                         ) : (
                           fmt(r.cost)
                         )}
                       </td>
-                      <td className="strong-cell">{fmt(r.perPoint)}</td>
+                      <td className={`strong-cell ${tone(r.perPoint) ?? ''}`}>{fmt(r.perPoint)}</td>
                       <td>{fmt(r.attempts)}</td>
                       <td className="cost-cell left">
                         <Materials parts={r.parts} priceLabel={modeInfo.label.toLowerCase()} />

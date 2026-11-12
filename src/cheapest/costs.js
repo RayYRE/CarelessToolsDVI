@@ -70,65 +70,83 @@ export function unitCost(prices, item, rarity, mode = 'ask', craft = 'cheapest',
   return { cost: make, how: 'make', noPrice: buy === null || makeNoPrice }
 }
 
-// Every processing tier you could do next, priced from the market (less what the crafted items
-// sell for, if selling is on) and ranked by net coins per point. Gathering uses no materials, so it isn't priced here (its cost is time).
-export function cheapestSteps({ profile, mode = 'ask', craft = 'cheapest', sell = 'off', rarities = RARITIES }) {
+// Every processing tier up to `upTo` (a milestone such as 1000; null = just the next tier),
+// priced from the market (less what the crafted items sell for, if selling is on) and ranked by
+// profit per point, best first. Each tier of an item is its own row, starting where the one
+// before it ends. Gathering uses no materials, so it isn't priced here (its cost is time).
+export function cheapestSteps({ profile, mode = 'ask', craft = 'cheapest', sell = 'off', upTo = null, rarities = RARITIES }) {
   const prices = profile.prices ?? { items: {} }
   // Selling pays the market fee
   const feeBp = prices.taxBp ?? MARKET_FEE_BP
   const keep = 1 - feeBp / 10000
+  // One unit's cost doesn't depend on how many are bought, so work each out once
+  const unitCache = new Map()
+  const unitOf = (material, rarity) => {
+    const key = `${material}|${rarity}`
+    if (!unitCache.has(key)) unitCache.set(key, unitCost(prices, material, rarity, mode, craft))
+    return unitCache.get(key)
+  }
   const rows = []
   for (const job of JOBS) {
     if (isGathering(job.skill) || !hasLogItem(job) || !RECIPES[job.name]) continue
-    const xp = profile.skillXp[job.skill] ?? 0
-    if (job.level > levelForXp(xp)) continue
+    const startXp = profile.skillXp[job.skill] ?? 0
+    if (job.level > levelForXp(startXp)) continue
     const xpGain = skillXpGain(profile, job.skill)
     const speed = profile.speed[job.skill] ?? 0
     const item = itemName(job)
     for (const rarity of rarities) {
-      const collected = profile.collection[item]?.[rarity.name] ?? 0
-      const step = tierStep(job, rarity, collected, xp, xpGain, speed)
-      if (step.done || !step.points) continue
-      // Materials are priced one unit at a time, so a big step is only as accurate as the quote
-      let cost = 0
-      const parts = []
-      for (const m of step.materials) {
-        const unit = unitCost(prices, m.material, m.rarity, mode, craft)
-        if (!unit) {
-          cost = null
-          break
-        }
-        cost += unit.cost * m.quantity
-        parts.push({ ...m, unit: unit.cost, how: unit.how, noPrice: unit.noPrice })
+      let collected = profile.collection[item]?.[rarity.name] ?? 0
+      // XP carries from tier to tier, so later tiers burn less
+      let xp = startXp
+      for (;;) {
+        const step = tierStep(job, rarity, collected, xp, xpGain, speed)
+        if (step.done || (upTo !== null && step.to > upTo)) break
+        collected = step.to
+        xp += step.xpGained
+        const row = priceStep(step)
+        if (row) rows.push(row)
+        if (upTo === null) break
       }
-      if (cost === null) continue
-      // Every item crafted can be sold; with no price in this mode the sale just isn't counted
-      const unitSale = sell === 'off' ? null : priceOf(prices, item, rarity.name, sell)
-      const revenue = unitSale ? unitSale * keep * step.items : 0
-      const net = cost - revenue
-      rows.push({
-        job: job.name,
-        item,
-        skill: job.skill,
-        rarity: rarity.name,
-        from: step.from,
-        to: step.to,
-        points: step.points,
-        seconds: step.seconds,
-        cost,
-        items: step.items,
-        attempts: step.attempts,
-        xpGained: step.xpGained,
-        unitSale,
-        taxBp: feeBp,
-        revenue,
-        // A sale that beats the cost makes this negative: the points are free (and pay)
-        net,
-        noSale: sell !== 'off' && !unitSale,
-        perPoint: net / step.points,
-        parts,
-      })
+
+      // Materials are priced one unit at a time, so a big step is only as accurate as the quote
+      function priceStep(step) {
+        if (!step.points) return null
+        let cost = 0
+        const parts = []
+        for (const m of step.materials) {
+          const unit = unitOf(m.material, m.rarity)
+          if (!unit) return null
+          cost += unit.cost * m.quantity
+          parts.push({ ...m, unit: unit.cost, how: unit.how, noPrice: unit.noPrice })
+        }
+        // Every item crafted can be sold; with no price in this mode the sale just isn't counted
+        const unitSale = sell === 'off' ? null : priceOf(prices, item, rarity.name, sell)
+        const revenue = unitSale ? unitSale * keep * step.items : 0
+        const profit = revenue - cost
+        return {
+          job: job.name,
+          item,
+          skill: job.skill,
+          rarity: rarity.name,
+          from: step.from,
+          to: step.to,
+          points: step.points,
+          seconds: step.seconds,
+          cost,
+          items: step.items,
+          attempts: step.attempts,
+          xpGained: step.xpGained,
+          unitSale,
+          taxBp: feeBp,
+          revenue,
+          // What the sale leaves after the materials: negative when the materials cost more
+          profit,
+          noSale: sell !== 'off' && !unitSale,
+          perPoint: profit / step.points,
+          parts,
+        }
+      }
     }
   }
-  return rows.sort((a, b) => a.perPoint - b.perPoint)
+  return rows.sort((a, b) => b.perPoint - a.perPoint)
 }
