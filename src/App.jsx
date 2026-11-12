@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import CheapestClog from './cheapest/CheapestClog.jsx'
 import CollectionPlanner from './collection/CollectionPlanner.jsx'
 import ImportPanel from './components/ImportPanel.jsx'
 import Enhancing from './enhancing/Enhancing.jsx'
@@ -9,11 +10,12 @@ import './App.css'
 const TABS = [
   { id: 'import', label: 'Import', Tool: ImportPanel },
   { id: 'xp', label: 'XP calculator', Tool: XpCalculator },
-  { id: 'collection', label: 'Collection log', Tool: CollectionPlanner },
+  { id: 'collection', label: 'Clog Planner', Tool: CollectionPlanner },
+  { id: 'cheapest-clog', label: 'Cheapest Clog', Tool: CheapestClog },
   { id: 'enhancing', label: 'Enhancing', Tool: Enhancing },
 ]
 
-// Current tab comes from the URL hash (#xp, #collection, #enhancing, #import) so each tool can be linked directly
+// Current tab comes from the URL hash (#xp, #collection, #cheapest-clog, #enhancing, #import) so each tool can be linked directly
 function useHashTab() {
   const read = () => TABS.find((t) => `#${t.id}` === window.location.hash) ?? TABS[0]
   const [tab, setTab] = useState(read)

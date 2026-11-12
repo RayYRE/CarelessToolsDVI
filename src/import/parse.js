@@ -122,13 +122,40 @@ function parsePlayer(player) {
 export function parseSnapshot(snapshot) {
   const player = parsePlayer(snapshot?.player)
   const stats = snapshot?.stats?.html ? parseStats(snapshot.stats.html) : null
-  if (!stats?.found.length) return player
+  const prices = pricesFrom(snapshot?.prices)
+  if (!stats?.found.length && !prices) return player
   return {
-    settings: { ...player.settings, ...stats.settings },
-    found: [...player.found, ...stats.found],
-    warning: stats.warning,
-    // Only an error when neither part had anything
-    error: player.found.length ? undefined : player.error,
+    settings: { ...player.settings, ...stats?.settings, ...(prices && { prices }) },
+    found: [
+      ...player.found,
+      ...(stats?.found ?? []),
+      ...(prices ? [`market prices (${Object.keys(prices.items).length} items, ${prices.source})`] : []),
+    ],
+    warning: stats?.warning,
+    // Only an error when no part had anything
+    error: player.found.length || prices ? undefined : player.error,
+  }
+}
+
+// Market prices from the userscript: { items: { itemId: [ask, bid, volume] }, taxBp, capturedAt,
+// source }. Returned by item name and rarity like the inventory: { "Iron bar": { Common: [ask, bid] } },
+// where 0 means no orders. Gear with a + level (ID 10,000 and up) is skipped.
+// Wrapped in `items` so an import replaces every price (imports merge maps key by key).
+function pricesFrom(prices) {
+  if (!prices?.items || typeof prices.items !== 'object') return null
+  const items = {}
+  for (const [id, entry] of Object.entries(prices.items)) {
+    const rarity = RARITIES[Math.floor(id / 1000)]
+    const name = itemNameById(id % 1000)
+    if (!(id < 10000) || !rarity || !name || !Array.isArray(entry)) continue
+    items[name] = { ...items[name], [rarity.name]: [entry[0] || 0, entry[1] || 0] }
+  }
+  if (!Object.keys(items).length) return null
+  return {
+    items,
+    taxBp: Number.isFinite(prices.taxBp) ? prices.taxBp : 0,
+    capturedAt: prices.capturedAt ?? null,
+    source: prices.source ?? 'feed',
   }
 }
 
