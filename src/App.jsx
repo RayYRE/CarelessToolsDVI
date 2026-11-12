@@ -10,8 +10,8 @@ import './App.css'
 const TABS = [
   { id: 'import', label: 'Import', Tool: ImportPanel },
   { id: 'xp', label: 'XP calculator', Tool: XpCalculator },
-  { id: 'collection', label: 'Clog Planner', Tool: CollectionPlanner },
-  { id: 'cheapest-clog', label: 'Cheapest Clog', Tool: CheapestClog },
+  { id: 'collection', label: 'Collection log Planner', Tool: CollectionPlanner },
+  { id: 'cheapest-clog', label: 'Cheapest Collection log', Tool: CheapestClog },
   { id: 'enhancing', label: 'Enhancing', Tool: Enhancing },
 ]
 

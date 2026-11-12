@@ -304,7 +304,7 @@ export default function CheapestClog({ profile }) {
 
       <section className="panel">
         <div className="panel-header">
-          <h2>Cheapest clog ({shown.length} steps)</h2>
+          <h2>Cheapest collection log ({shown.length} steps)</h2>
           <div className="chips">
             {hiddenCount > 0 && (
               <button
