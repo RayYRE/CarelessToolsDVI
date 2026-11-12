@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../components/Icon.jsx'
 import IconSelect from '../components/IconSelect.jsx'
-import { fmt, formatDuration } from '../core/format.js'
+import { fmt } from '../core/format.js'
 import { usePersistentState } from '../core/storage.js'
 import { formatMilestone } from '../game/collection.js'
 import { iconFor, skillIcon } from '../game/icons.js'
 import { SKILL_GROUPS } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
-import { CRAFT_MODES, PRICE_MODES, SELL_MODES, cheapestSteps } from './costs.js'
+import { CRAFT_MODES, MARKET_FEE_BP, PRICE_MODES, SELL_MODES, cheapestSteps } from './costs.js'
 import { mergePrices, useFeedPrices } from './priceFeed.js'
 
 const LIMIT = 50
@@ -41,6 +41,97 @@ function Materials({ parts, priceLabel }) {
       )}
     </span>
   ))
+}
+
+// One line of a detail card: a label and a value
+const Line = ({ label, children, strong }) => (
+  <div className={`detail-line${strong ? ' strong' : ''}`}>
+    <span>{label}</span>
+    <span>{children}</span>
+  </div>
+)
+
+// The cards shown when a row is opened: what the materials cost, what the crafted items sell
+// for, and what the step gives
+function Detail({ r, selling, sellInfo, modeInfo }) {
+  const gross = (r.unitSale ?? 0) * r.items
+  return (
+    <div className="detail-cards">
+      <section className="detail-card">
+        <h3>Materials ({r.parts.length})</h3>
+        <p className="detail-sub">
+          Costed at the {modeInfo.label.toLowerCase()} price, for {fmt(r.attempts)} actions
+        </p>
+        {r.parts.map((p) => (
+          <Line
+            key={`${p.rarity}|${p.material}`}
+            label={
+              <span className="with-icon">
+                <Icon src={iconFor(p.material)} size={16} />
+                <span className={p.rarity === 'Common' ? undefined : `rarity-${p.rarity.toLowerCase()}`} title={`${p.rarity} ${p.material}`}>
+                  {p.material}
+                </span>
+                {p.how === 'make' && <small> (made)</small>}
+                {p.noPrice && (
+                  <span
+                    className="price-flag"
+                    role="img"
+                    aria-label="No market price"
+                    title={`No ${modeInfo.label.toLowerCase()} price on the market for this material (or something it is made from), so its craft price is used`}
+                  >
+                    {' ⓘ'}
+                  </span>
+                )}
+              </span>
+            }
+          >
+            <small>
+              {fmt(p.quantity)} × {fmt(p.unit)} ={' '}
+            </small>
+            {fmt(p.quantity * p.unit)}
+          </Line>
+        ))}
+        <Line label="Total cost" strong>
+          {fmt(r.cost)}
+        </Line>
+      </section>
+
+      <section className="detail-card">
+        <h3>Sell</h3>
+        {!selling ? (
+          <p className="detail-sub">Selling is off.</p>
+        ) : r.noSale ? (
+          <p className="detail-sub">
+            No {sellInfo.label.toLowerCase()} price on the market for this item, so the sale is not counted.
+          </p>
+        ) : (
+          <>
+            <p className="detail-sub">At the {sellInfo.label.toLowerCase()} price</p>
+            <Line label="Price each">{fmt(r.unitSale)}</Line>
+            <Line label="Items crafted">{fmt(r.items)}</Line>
+            <Line label="Gross">{fmt(gross)}</Line>
+            <Line label={`Market fee (${r.taxBp / 100}%)`}>-{fmt(gross - r.revenue)}</Line>
+            <Line label="Sale" strong>
+              {fmt(r.revenue)}
+            </Line>
+          </>
+        )}
+      </section>
+
+      <section className="detail-card">
+        <h3>Result</h3>
+        <Line label={selling ? 'Net cost' : 'Cost'} strong>
+          {fmt(r.net)}
+        </Line>
+        <Line label="Points">{r.points}</Line>
+        <Line label="Coins / point" strong>
+          {fmt(r.perPoint)}
+        </Line>
+        <Line label="Actions">{fmt(r.attempts)}</Line>
+        <Line label="XP gained">{fmt(r.xpGained)}</Line>
+      </section>
+    </div>
+  )
 }
 
 // Settings button with a pop-out for which market price materials are costed at, whether they
@@ -145,10 +236,18 @@ function MarketSettings({ mode, craft, sell, off, onChange }) {
 // Draft: the next collection log tiers you could craft, cheapest coins per point first,
 // priced from the market prices the userscript captures (Import tab).
 export default function CheapestClog({ profile }) {
-  const [settings, set] = usePersistentState('cheapest-clog', { skill: 'All', mode: 'ask', craft: 'cheapest', sell: 'bid', off: [] })
-  const { skill, mode, craft, sell, off } = settings
+  const [settings, set] = usePersistentState('cheapest-clog', { skill: 'All', mode: 'ask', craft: 'cheapest', sell: 'bid', off: [], hidden: [] })
+  const { skill, mode, craft, sell, off, hidden } = settings
   const rarities = useMemo(() => RARITIES.filter((r) => !off.includes(r.name)), [off])
   const setSkill = (s) => set({ skill: s })
+  // Rows opened to show their cost details
+  const [open, setOpen] = useState(() => new Set())
+  const toggle = (key) =>
+    setOpen((s) => {
+      const next = new Set(s)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
   const modeInfo = PRICE_MODES.find((m) => m.id === mode) ?? PRICE_MODES[0]
   const craftInfo = CRAFT_MODES.find((m) => m.id === craft) ?? CRAFT_MODES[0]
 
@@ -171,7 +270,11 @@ export default function CheapestClog({ profile }) {
     () => (hasPrices && !missingAverage ? cheapestSteps({ profile: { ...profile, prices }, mode, craft, sell, rarities }) : []),
     [profile, prices, hasPrices, mode, craft, sell, rarities, missingAverage],
   )
-  const shown = rows.filter((r) => skill === 'All' || r.skill === skill).slice(0, LIMIT)
+  // Rows removed with the X, remembered per tier so the next tier of an item still shows up
+  const rowKey = (r) => `${r.job}|${r.rarity}|${r.to}`
+  const visible = rows.filter((r) => (skill === 'All' || r.skill === skill) && !hidden.includes(rowKey(r)))
+  const shown = visible.slice(0, LIMIT)
+  const hiddenCount = rows.filter((r) => (skill === 'All' || r.skill === skill) && hidden.includes(rowKey(r))).length
 
   if (!hasPrices) {
     return (
@@ -203,6 +306,16 @@ export default function CheapestClog({ profile }) {
         <div className="panel-header">
           <h2>Cheapest clog ({shown.length} steps)</h2>
           <div className="chips">
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                className="chip"
+                title="Show the rows you removed again"
+                onClick={() => set({ hidden: [] })}
+              >
+                Restore removed ({hiddenCount})
+              </button>
+            )}
             <MarketSettings mode={mode} craft={craft} sell={sell} off={off} onChange={set} />
           </div>
         </div>
@@ -213,7 +326,7 @@ export default function CheapestClog({ profile }) {
           ({modeInfo.hint.toLowerCase()}); {craftInfo.hint.toLowerCase()}. ⓘ marks a material with no market
           price at this setting, costed at its craft price.
           {selling
-            ? ` Crafted items are sold at the ${sellInfo.label.toLowerCase()} price${prices.taxBp ? ` after ${prices.taxBp / 100}% market tax` : ''}, and coins / point is the cost less the sale.`
+            ? ` Crafted items are sold at the ${sellInfo.label.toLowerCase()} price after the ${(prices.taxBp ?? MARKET_FEE_BP) / 100}% market fee, and coins / point is the cost less the sale.`
             : ' Selling is off: coins / point is just the cost of the materials.'}
           {missingAverage && ' The averages come from the price feed, which has not loaded.'} Gathering is not
           priced yet.
@@ -222,57 +335,107 @@ export default function CheapestClog({ profile }) {
           <table className="align-center">
             <thead>
               <tr>
+                <th aria-label="Show details" />
                 <th>Item</th>
-                <th>Rarity</th>
                 <th>Tier</th>
                 <th>Points</th>
-                <th>Cost</th>
-                {selling && <th>Sells for</th>}
-                {selling && <th>Net cost</th>}
+                <th>{selling ? 'Net cost' : 'Cost'}</th>
                 <th>Coins / point</th>
-                <th>Time</th>
+                <th title="Crafting attempts the step takes, burned or failed ones included">Actions</th>
                 <th>Materials</th>
+                <th aria-label="Remove" />
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => (
-                <tr key={`${r.job}|${r.rarity}`}>
-                  <td className="left">
-                    <span className="with-icon">
-                      <Icon src={iconFor(r.item)} />
-                      <span>{r.item}</span>
-                    </span>
-                  </td>
-                  <td className={`rarity-${r.rarity.toLowerCase()}`}>{r.rarity}</td>
-                  <td>
-                    {formatMilestone(r.from)} → {formatMilestone(r.to)}
-                  </td>
-                  <td>{r.points}</td>
-                  <td>{fmt(r.cost)}</td>
-                  {selling && (
-                    <td>
-                      {r.noSale ? (
-                        <span
-                          className="price-flag"
-                          role="img"
-                          aria-label="No sell price"
-                          title={`No ${sellInfo.label.toLowerCase()} price on the market for this item, so the sale is not counted`}
+              {shown.map((r) => {
+                const key = `${r.job}|${r.rarity}`
+                const isOpen = open.has(key)
+                return (
+                  <Fragment key={key}>
+                    <tr className={`clickable${isOpen ? ' open' : ''}`} onClick={() => toggle(key)}>
+                      <td>
+                        <button
+                          type="button"
+                          className="row-toggle"
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? 'Hide' : 'Show'} cost details for ${r.rarity} ${r.item}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggle(key)
+                          }}
                         >
-                          ⓘ
+                          {isOpen ? '▼' : '▶'}
+                        </button>
+                      </td>
+                      <td className="left">
+                        <span className="with-icon">
+                          <Icon src={iconFor(r.item)} />
+                          <span
+                            className={r.rarity === 'Common' ? undefined : `rarity-${r.rarity.toLowerCase()}`}
+                            title={`${r.rarity} ${r.item}`}
+                          >
+                            {r.item}
+                          </span>
                         </span>
-                      ) : (
-                        fmt(r.revenue)
-                      )}
-                    </td>
-                  )}
-                  {selling && <td>{fmt(r.net)}</td>}
-                  <td>{fmt(r.perPoint)}</td>
-                  <td>{formatDuration(r.seconds)}</td>
-                  <td className="cost-cell left">
-                    <Materials parts={r.parts} priceLabel={modeInfo.label.toLowerCase()} />
-                  </td>
-                </tr>
-              ))}
+                      </td>
+                      <td>
+                        {formatMilestone(r.from)} → {formatMilestone(r.to)}
+                      </td>
+                      <td>{r.points}</td>
+                      <td>
+                        {selling ? (
+                          <div className="net-cell">
+                            <strong>{fmt(r.net)}</strong>
+                            <small>
+                              {fmt(r.cost)} −{' '}
+                              {r.noSale ? (
+                                <span
+                                  className="price-flag"
+                                  role="img"
+                                  aria-label="No sell price"
+                                  title={`No ${sellInfo.label.toLowerCase()} price on the market for this item, so the sale is not counted`}
+                                >
+                                  ⓘ
+                                </span>
+                              ) : (
+                                fmt(r.revenue)
+                              )}
+                            </small>
+                          </div>
+                        ) : (
+                          fmt(r.cost)
+                        )}
+                      </td>
+                      <td className="strong-cell">{fmt(r.perPoint)}</td>
+                      <td>{fmt(r.attempts)}</td>
+                      <td className="cost-cell left">
+                        <Materials parts={r.parts} priceLabel={modeInfo.label.toLowerCase()} />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="exclude"
+                          title={`Remove ${r.item} (${r.rarity}) from the list`}
+                          aria-label={`Remove ${r.item} (${r.rarity}) from the list`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            set({ hidden: [...hidden, rowKey(r)] })
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="detail-row">
+                        <td colSpan={9}>
+                          <Detail r={r} selling={selling} sellInfo={sellInfo} modeInfo={modeInfo} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
             </tbody>
           </table>
         </div>

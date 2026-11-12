@@ -13,7 +13,7 @@ function parseFeed(feed) {
     if (!rarity || entry.plus || !entry.name) continue
     items[entry.name] = { ...items[entry.name], [rarity.name]: [entry.lowestSell || 0, entry.highestBuy || 0, entry.avg7d || 0, entry.avg30d || 0] }
   }
-  return { items, taxBp: 0, capturedAt: Date.parse(feed?.generatedAt) || Date.now(), source: 'feed' }
+  return { items, taxBp: null, capturedAt: Date.parse(feed?.generatedAt) || Date.now(), source: 'feed' }
 }
 
 // Imported prices (live from the market: ask and bid) with the feed's averages added, so every

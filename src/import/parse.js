@@ -153,7 +153,7 @@ function pricesFrom(prices) {
   if (!Object.keys(items).length) return null
   return {
     items,
-    taxBp: Number.isFinite(prices.taxBp) ? prices.taxBp : 0,
+    taxBp: Number.isFinite(prices.taxBp) ? prices.taxBp : null,
     capturedAt: prices.capturedAt ?? null,
     source: prices.source ?? 'feed',
   }

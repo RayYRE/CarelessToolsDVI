@@ -17,6 +17,9 @@ export const PRICE_MODES = [
   { id: 'avg30d', label: '30 day average', hint: 'Average trade price over 30 days', index: 3 },
 ]
 
+// Market fee on a sale, in basis points (3%). An import carries the game's own figure, which wins.
+export const MARKET_FEE_BP = 300
+
 // Selling the crafted items: off, or one of the same prices (ask = list at the lowest sell order,
 // bid = sell now to the highest buy order)
 export const SELL_MODES = [
@@ -71,8 +74,9 @@ export function unitCost(prices, item, rarity, mode = 'ask', craft = 'cheapest',
 // sell for, if selling is on) and ranked by net coins per point. Gathering uses no materials, so it isn't priced here (its cost is time).
 export function cheapestSteps({ profile, mode = 'ask', craft = 'cheapest', sell = 'off', rarities = RARITIES }) {
   const prices = profile.prices ?? { items: {} }
-  // Selling pays the market tax (imported with the prices; the public feed doesn't have it)
-  const keep = 1 - (prices.taxBp ?? 0) / 10000
+  // Selling pays the market fee
+  const feeBp = prices.taxBp ?? MARKET_FEE_BP
+  const keep = 1 - feeBp / 10000
   const rows = []
   for (const job of JOBS) {
     if (isGathering(job.skill) || !hasLogItem(job) || !RECIPES[job.name]) continue
@@ -112,6 +116,11 @@ export function cheapestSteps({ profile, mode = 'ask', craft = 'cheapest', sell 
         points: step.points,
         seconds: step.seconds,
         cost,
+        items: step.items,
+        attempts: step.attempts,
+        xpGained: step.xpGained,
+        unitSale,
+        taxBp: feeBp,
         revenue,
         // A sale that beats the cost makes this negative: the points are free (and pay)
         net,
