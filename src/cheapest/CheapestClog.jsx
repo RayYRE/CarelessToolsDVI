@@ -7,7 +7,7 @@ import { MILESTONES, formatMilestone } from '../game/collection.js'
 import { iconFor, skillIcon } from '../game/icons.js'
 import { SKILL_GROUPS } from '../game/jobs.js'
 import { RARITIES } from '../game/rarities.js'
-import { CRAFT_MODES, MARKET_FEE_BP, PRICE_MODES, SELL_MODES, cheapestSteps } from './costs.js'
+import { CRAFT_MODES, DEFAULT_TIER_RANGE, MARKET_FEE_BP, PRICE_MODES, SELL_MODES, cheapestSteps } from './costs.js'
 import { mergePrices, useFeedPrices } from './priceFeed.js'
 
 const LIMIT = 50
@@ -143,10 +143,81 @@ function Detail({ r, selling, sellInfo, modeInfo }) {
   )
 }
 
+// Tier ranges per rarity: { min, max, off }. Older saves are converted: the one "Go up to"
+// (`upTo`, null = next tier) for every rarity, rarities switched off (`off`), and a max of null
+// (the old "Off" choice) all become this shape.
+function tiersFrom({ tiers, upTo = null, off = [] }) {
+  const from = tiers ?? Object.fromEntries(
+    RARITIES.map((r) => [r.name, { min: 1, max: upTo ?? 'next', off: off.includes(r.name) }]),
+  )
+  return Object.fromEntries(
+    Object.entries(from).map(([name, t]) => [name, t.max === null ? { ...t, max: 'next', off: true } : t]),
+  )
+}
+
+// <select> values are strings: 'next' = next tier, else a milestone
+const parseMax = (v) => (v === 'next' ? 'next' : Number(v))
+
+// One row per rarity: whether it's listed, and the lowest and highest tier it lists
+function TierRanges({ tiers, onChange }) {
+  const set = (rarity, patch) =>
+    onChange({ ...tiers, [rarity]: { ...(tiers[rarity] ?? DEFAULT_TIER_RANGE), ...patch } })
+  return (
+    <fieldset className="tier-ranges">
+      <legend>Tiers per rarity</legend>
+      <div className="tier-grid">
+        <span />
+        <span title="Only list tiers that end at or above this count">Min</span>
+        <span title="List tiers up to this count; Next tier lists just the one after what you have">Max</span>
+        {RARITIES.map((r) => {
+          const { min, max, off } = tiers[r.name] ?? DEFAULT_TIER_RANGE
+          // A numeric max below min lists nothing
+          const empty = typeof max === 'number' && max < min
+          return (
+            <Fragment key={r.name}>
+              <label className="check" title={off ? `List ${r.name}` : `Stop listing ${r.name}`}>
+                <input type="checkbox" checked={!off} onChange={() => set(r.name, { off: !off })} />
+                <span className={`rarity-${r.name.toLowerCase()}${off ? ' muted' : ''}`}>{r.name}</span>
+              </label>
+              <select
+                aria-label={`${r.name} lowest tier`}
+                value={min}
+                disabled={off}
+                className={empty ? 'invalid' : undefined}
+                onChange={(e) => set(r.name, { min: Number(e.target.value) })}
+              >
+                {MILESTONES.map((m) => (
+                  <option key={m} value={m}>
+                    {formatMilestone(m)}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label={`${r.name} highest tier`}
+                value={String(max)}
+                disabled={off}
+                className={empty ? 'invalid' : undefined}
+                title={empty ? 'Max is below Min, so nothing is listed for this rarity' : undefined}
+                onChange={(e) => set(r.name, { max: parseMax(e.target.value) })}
+              >
+                <option value="next">Next tier</option>
+                {MILESTONES.map((m) => (
+                  <option key={m} value={m}>
+                    {formatMilestone(m)}
+                  </option>
+                ))}
+              </select>
+            </Fragment>
+          )
+        })}
+      </div>
+    </fieldset>
+  )
+}
+
 // Settings button with a pop-out for which market price materials are costed at, whether they
-// are bought or crafted, what the crafted items sell for, and which rarities are listed (`off`
-// lists those switched off)
-function MarketSettings({ mode, craft, sell, off, onChange }) {
+// are bought or crafted, what the crafted items sell for, and which tiers each rarity lists
+function MarketSettings({ mode, craft, sell, tiers, onChange }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
@@ -170,14 +241,14 @@ function MarketSettings({ mode, craft, sell, off, onChange }) {
         className="chip"
         aria-expanded={open}
         aria-haspopup="dialog"
-        title="Choose the prices used for buying and selling, whether materials are bought or crafted, and which rarities are listed"
+        title="Choose the prices used for buying and selling, whether materials are bought or crafted, and which tiers each rarity lists"
         onClick={() => setOpen(!open)}
       >
         Settings
       </button>
       {open && (
         <div className="popover" role="dialog" aria-label="Price settings">
-          <div className="popover-columns" style={{ gridTemplateColumns: 'repeat(2, auto)' }}>
+          <div className="popover-columns" style={{ gridTemplateColumns: 'repeat(3, auto)' }}>
           <fieldset>
             <legend>Material price</legend>
             {PRICE_MODES.map((m) => (
@@ -187,20 +258,6 @@ function MarketSettings({ mode, craft, sell, off, onChange }) {
                   name="price-mode"
                   checked={m.id === mode}
                   onChange={() => onChange({ mode: m.id })}
-                />
-                {m.label}
-              </label>
-            ))}
-          </fieldset>
-          <fieldset>
-            <legend>Materials</legend>
-            {CRAFT_MODES.map((m) => (
-              <label key={m.id} className="check" title={m.hint}>
-                <input
-                  type="radio"
-                  name="craft-mode"
-                  checked={m.id === craft}
-                  onChange={() => onChange({ craft: m.id })}
                 />
                 {m.label}
               </label>
@@ -221,20 +278,20 @@ function MarketSettings({ mode, craft, sell, off, onChange }) {
             ))}
           </fieldset>
           <fieldset>
-            <legend>Rarities</legend>
-            {RARITIES.map((r) => (
-              <label key={r.name} className="check">
+            <legend>Materials</legend>
+            {CRAFT_MODES.map((m) => (
+              <label key={m.id} className="check" title={m.hint}>
                 <input
-                  type="checkbox"
-                  checked={!off.includes(r.name)}
-                  onChange={() =>
-                    onChange({ off: off.includes(r.name) ? off.filter((n) => n !== r.name) : [...off, r.name] })
-                  }
+                  type="radio"
+                  name="craft-mode"
+                  checked={m.id === craft}
+                  onChange={() => onChange({ craft: m.id })}
                 />
-                <span className={`rarity-${r.name.toLowerCase()}`}>{r.name}</span>
+                {m.label}
               </label>
             ))}
           </fieldset>
+          <TierRanges tiers={tiers} onChange={(next) => onChange({ tiers: next })} />
           </div>
         </div>
       )}
@@ -245,9 +302,10 @@ function MarketSettings({ mode, craft, sell, off, onChange }) {
 // Draft: the next collection log tiers you could craft, cheapest coins per point first,
 // priced from the market prices the userscript captures (Import tab).
 export default function CheapestClog({ profile }) {
-  const [settings, set] = usePersistentState('cheapest-clog', { skill: 'All', mode: 'ask', craft: 'cheapest', sell: 'bid', off: [], hidden: [], upTo: null })
-  const { skill, mode, craft, sell, off, hidden, upTo } = settings
-  const rarities = useMemo(() => RARITIES.filter((r) => !off.includes(r.name)), [off])
+  const [settings, set] = usePersistentState('cheapest-clog', { skill: 'All', mode: 'ask', craft: 'cheapest', sell: 'bid', hidden: [] })
+  const { skill, mode, craft, sell, hidden } = settings
+  // Lowest and highest tier listed per rarity (older saves are converted on the fly)
+  const tiers = useMemo(() => tiersFrom(settings), [settings])
   const setSkill = (s) => set({ skill: s })
   // Rows opened to show their cost details
   const [open, setOpen] = useState(() => new Set())
@@ -276,8 +334,8 @@ export default function CheapestClog({ profile }) {
   const sellInfo = SELL_MODES.find((m) => m.id === sell) ?? SELL_MODES[0]
 
   const rows = useMemo(
-    () => (hasPrices && !missingAverage ? cheapestSteps({ profile: { ...profile, prices }, mode, craft, sell, upTo, rarities }) : []),
-    [profile, prices, hasPrices, mode, craft, sell, upTo, rarities, missingAverage],
+    () => (hasPrices && !missingAverage ? cheapestSteps({ profile: { ...profile, prices }, mode, craft, sell, tiers }) : []),
+    [profile, prices, hasPrices, mode, craft, sell, tiers, missingAverage],
   )
   // Rows removed with the X, remembered per tier so the next tier of an item still shows up
   const rowKey = (r) => `${r.job}|${r.rarity}|${r.to}`
@@ -309,20 +367,6 @@ export default function CheapestClog({ profile }) {
             ...SKILL_GROUPS.Processing.map((s) => ({ value: s, label: s, icon: skillIcon(s) })),
           ]}
         />
-        <label title="List every tier of each item up to this collected count, each as its own row">
-          Go up to
-          <select
-            value={upTo ?? ''}
-            onChange={(e) => set({ upTo: e.target.value === '' ? null : Number(e.target.value) })}
-          >
-            <option value="">Next tier only</option>
-            {MILESTONES.slice(1).map((m) => (
-              <option key={m} value={m}>
-                {formatMilestone(m)}
-              </option>
-            ))}
-          </select>
-        </label>
       </section>
 
       <section className="panel">
@@ -339,7 +383,7 @@ export default function CheapestClog({ profile }) {
                 Restore removed ({hiddenCount})
               </button>
             )}
-            <MarketSettings mode={mode} craft={craft} sell={sell} off={off} onChange={set} />
+            <MarketSettings mode={mode} craft={craft} sell={sell} tiers={tiers} onChange={set} />
           </div>
         </div>
         <p className="hint">
@@ -361,10 +405,10 @@ export default function CheapestClog({ profile }) {
                 <th aria-label="Show details" />
                 <th>Item</th>
                 <th>Tier</th>
-                <th>Points</th>
+                <th title="Crafting attempts the step takes, burned or failed ones included">Actions</th>
                 <th>{selling ? 'Profit' : 'Cost'}</th>
                 <th>Profit / point</th>
-                <th title="Crafting attempts the step takes, burned or failed ones included">Actions</th>
+                <th>Points</th>
                 <th>Materials</th>
                 <th aria-label="Remove" />
               </tr>
@@ -404,7 +448,7 @@ export default function CheapestClog({ profile }) {
                       <td>
                         {formatMilestone(r.from)} → {formatMilestone(r.to)}
                       </td>
-                      <td>{r.points}</td>
+                      <td>{fmt(r.attempts)}</td>
                       <td>
                         {selling ? (
                           <div className="net-cell">
@@ -430,7 +474,7 @@ export default function CheapestClog({ profile }) {
                         )}
                       </td>
                       <td className={`strong-cell ${tone(r.perPoint) ?? ''}`}>{fmt(r.perPoint)}</td>
-                      <td>{fmt(r.attempts)}</td>
+                      <td>{r.points}</td>
                       <td className="cost-cell left">
                         <Materials parts={r.parts} priceLabel={modeInfo.label.toLowerCase()} />
                       </td>

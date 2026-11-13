@@ -879,6 +879,19 @@ label.check input[type='checkbox'] {
   margin: 0;
 }
 
+/* No focus box around a clicked radio or checkbox (the text inputs' focus style); keyboard
+   focus still gets an outline */
+label.check input[type='radio']:focus,
+label.check input[type='checkbox']:focus {
+  box-shadow: none;
+}
+
+label.check input[type='radio']:focus-visible,
+label.check input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+
 label.check {
   flex-direction: row;
   align-items: center;
@@ -1016,4 +1029,34 @@ td.strong-cell.profit {
 .loss,
 td.strong-cell.loss {
   color: var(--warn);
+}
+
+/* Cheapest collection log: min and max tier per rarity, in the settings pop-out */
+fieldset.tier-ranges {
+  grid-column: 1 / -1;
+}
+
+.tier-grid {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 0.85rem;
+
+  > span:nth-child(-n + 3) {
+    color: var(--muted);
+  }
+
+  /* A rarity switched off */
+  .muted {
+    opacity: 0.5;
+  }
+
+  select {
+    padding: 3px 6px;
+  }
+
+  select.invalid {
+    border-color: var(--warn);
+  }
 }
