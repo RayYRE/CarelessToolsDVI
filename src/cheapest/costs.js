@@ -70,11 +70,17 @@ export function unitCost(prices, item, rarity, mode = 'ask', craft = 'cheapest',
   return { cost: make, how: 'make', noPrice: buy === null || makeNoPrice }
 }
 
-// Every processing tier up to `upTo` (a milestone such as 1000; null = just the next tier),
-// priced from the market (less what the crafted items sell for, if selling is on) and ranked by
-// profit per point, best first. Each tier of an item is its own row, starting where the one
-// before it ends. Gathering uses no materials, so it isn't priced here (its cost is time).
-export function cheapestSteps({ profile, mode = 'ask', craft = 'cheapest', sell = 'off', upTo = null, rarities = RARITIES }) {
+// Which tiers each rarity lists when nothing is set: just the next one
+export const DEFAULT_TIER_RANGE = { min: 1, max: 'next' }
+
+// Every processing tier in each rarity's range, priced from the market (less what the crafted
+// items sell for, if selling is on) and ranked by profit per point, best first.
+// `tiers` is { Rarity: { min, max } }: rows are listed for tiers ending at or above `min` and at or
+// below `max` (a milestone such as 1000, or 'next' for just the next tier); `off` lists none.
+// Each tier of an item is its own row, starting where the one before it ends; tiers below `min`
+// are still worked through (their XP and counts carry on), just not listed.
+// Gathering uses no materials, so it isn't priced here (its cost is time).
+export function cheapestSteps({ profile, mode = 'ask', craft = 'cheapest', sell = 'off', tiers = {} }) {
   const prices = profile.prices ?? { items: {} }
   // Selling pays the market fee
   const feeBp = prices.taxBp ?? MARKET_FEE_BP
@@ -94,18 +100,22 @@ export function cheapestSteps({ profile, mode = 'ask', craft = 'cheapest', sell 
     const xpGain = skillXpGain(profile, job.skill)
     const speed = profile.speed[job.skill] ?? 0
     const item = itemName(job)
-    for (const rarity of rarities) {
+    for (const rarity of RARITIES) {
+      const { min, max, off } = tiers[rarity.name] ?? DEFAULT_TIER_RANGE
+      if (off || max === null) continue
       let collected = profile.collection[item]?.[rarity.name] ?? 0
       // XP carries from tier to tier, so later tiers burn less
       let xp = startXp
       for (;;) {
         const step = tierStep(job, rarity, collected, xp, xpGain, speed)
-        if (step.done || (upTo !== null && step.to > upTo)) break
+        if (step.done || (max !== 'next' && step.to > max)) break
         collected = step.to
         xp += step.xpGained
-        const row = priceStep(step)
-        if (row) rows.push(row)
-        if (upTo === null) break
+        if (step.to >= min) {
+          const row = priceStep(step)
+          if (row) rows.push(row)
+        }
+        if (max === 'next') break
       }
 
       // Materials are priced one unit at a time, so a big step is only as accurate as the quote

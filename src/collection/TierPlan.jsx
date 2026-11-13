@@ -183,7 +183,7 @@ export default function TierPlan({
             }
             onClick={onMaximise}
           >
-            Calculate points (Greedy search | Userscript 1.6)
+            Calculate points (Uses items in Bank | Userscript 1.6)
           </button>
           <SearchSettings {...search} />
         </div>
