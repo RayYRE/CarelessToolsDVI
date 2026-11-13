@@ -872,6 +872,13 @@ button.sort-header {
 }
 
 /* Checkbox with its label on one line */
+/* Radios and checkboxes keep their native size instead of taking the text inputs' padding */
+label.check input[type='radio'],
+label.check input[type='checkbox'] {
+  padding: 0;
+  margin: 0;
+}
+
 label.check {
   flex-direction: row;
   align-items: center;
@@ -911,4 +918,102 @@ td.cost-cell {
   white-space: normal;
   min-width: 160px;
   max-width: 300px;
+}
+
+
+/* Cheapest Clog: clickable rows that open cost detail cards */
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover,
+tr.clickable.open {
+  background: var(--accent-bg);
+}
+
+button.row-toggle {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.net-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.net-cell small {
+  color: var(--muted);
+}
+
+td.strong-cell {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+tr.detail-row > td {
+  padding: 0;
+  white-space: normal;
+  text-align: left;
+}
+
+.detail-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  padding: 12px;
+}
+
+.detail-card {
+  background: var(--panel-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 10px 12px;
+
+  h3 {
+    margin: 0 0 4px;
+    font-size: 0.95rem;
+    color: var(--text-h);
+  }
+}
+
+.detail-sub {
+  margin: 0 0 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.detail-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 0;
+  border-top: 1px solid var(--border-soft);
+  font-size: 0.85rem;
+
+  small {
+    color: var(--muted);
+  }
+
+  &.strong {
+    color: var(--text-h);
+    font-weight: 600;
+  }
+}
+
+/* Profit green, loss red (td.strong-cell would otherwise win on specificity) */
+.profit,
+td.strong-cell.profit {
+  color: var(--rarity-uncommon);
+}
+
+.loss,
+td.strong-cell.loss {
+  color: var(--warn);
 }

@@ -19,6 +19,9 @@ const DEFAULT_PROFILE = {
   collection: {},
   // Everything in storage, same shape as collection, replaced on every import
   inventory: { items: {} },
+  // Market prices from the userscript: { items: { "Iron bar": { Common: [ask, bid] } }, taxBp,
+  // capturedAt, source }, replaced on every import
+  prices: { items: {} },
 }
 
 // Before the profile existed these lived in the XP calculator's settings
